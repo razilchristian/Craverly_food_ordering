@@ -10,19 +10,29 @@ import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.HexFormat;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 
 @Service
 public class RazorpayClientWrapper {
 
     private final RazorpayProperties razorpayProperties;
+    private final ConcurrentHashMap<String, RazorpayPaymentDetails> mockPaymentOverrides = new ConcurrentHashMap<>();
 
     public RazorpayClientWrapper(RazorpayProperties razorpayProperties) {
         this.razorpayProperties = razorpayProperties;
     }
 
     public record RazorpayOrderDetails(String id, String currency, long amount, String status) {}
-    public record RazorpayPaymentDetails(String id, String status, String method) {}
+    public record RazorpayPaymentDetails(String id, String status, String method, Long amount, String currency) {}
+
+    public void registerMockPayment(String paymentId, String status, String method, Long amount, String currency) {
+        mockPaymentOverrides.put(paymentId, new RazorpayPaymentDetails(paymentId, status, method, amount, currency));
+    }
+
+    public void clearMockPayments() {
+        mockPaymentOverrides.clear();
+    }
 
     public RazorpayOrderDetails createOrder(long amountInPaise, String currency, String receipt) {
         try {
@@ -50,15 +60,21 @@ public class RazorpayClientWrapper {
     }
 
     public RazorpayPaymentDetails fetchPayment(String razorpayPaymentId) {
+        if (mockPaymentOverrides.containsKey(razorpayPaymentId)) {
+            return mockPaymentOverrides.get(razorpayPaymentId);
+        }
+
         try {
             RazorpayClient client = new RazorpayClient(razorpayProperties.getKeyId(), razorpayProperties.getKeySecret());
             com.razorpay.Payment payment = client.payments.fetch(razorpayPaymentId);
             String status = payment.get("status");
             String method = payment.has("method") ? String.valueOf(payment.get("method")) : "test";
-            return new RazorpayPaymentDetails(razorpayPaymentId, status, method);
+            Long amount = payment.has("amount") ? ((Number) payment.get("amount")).longValue() : null;
+            String currency = payment.has("currency") ? String.valueOf(payment.get("currency")) : null;
+            return new RazorpayPaymentDetails(razorpayPaymentId, status, method, amount, currency);
         } catch (Exception e) {
             if (razorpayProperties.getKeyId() == null || razorpayProperties.getKeyId().contains("placeholder")) {
-                return new RazorpayPaymentDetails(razorpayPaymentId, "captured", "upi");
+                return new RazorpayPaymentDetails(razorpayPaymentId, "captured", "upi", null, "INR");
             }
             throw new RuntimeException("Failed to fetch Razorpay payment: " + e.getMessage(), e);
         }

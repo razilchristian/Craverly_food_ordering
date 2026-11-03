@@ -74,7 +74,7 @@ public class PaymentService {
         // Call Razorpay API to generate order
         var rzpOrder = razorpayClientWrapper.createOrder(amountInPaise, currency, order.getOrderNumber());
 
-        // Save Payment attempt in MySQL
+        // Save Payment attempt in MySQL (status remains PENDING until captured)
         Payment payment = new Payment(order, rzpOrder.id(), totalAmount, currency);
         paymentRepository.save(payment);
 
@@ -103,12 +103,15 @@ public class PaymentService {
         Payment payment = paymentRepository.findByRazorpayOrderId(request.getRazorpayOrderId())
                 .orElseThrow(() -> new ResourceNotFoundException("Payment attempt not found for Razorpay order ID: " + request.getRazorpayOrderId()));
 
-        validateOrderOwnership(payment.getOrder(), customer);
+        Order order = payment.getOrder();
+        validateOrderOwnership(order, customer);
 
-        // Idempotency: if already marked PAID, return existing verified response
+        // Idempotency: if already marked PAID, return existing verified response safely
         if (payment.getPaymentStatus() == PaymentStatus.PAID) {
             return PaymentResponse.fromEntity(payment);
         }
+
+        validateOrderEligibilityForPayment(order);
 
         // Verify cryptographic HMAC-SHA256 signature
         boolean isValidSignature = razorpayClientWrapper.verifyPaymentSignature(
@@ -128,7 +131,27 @@ public class PaymentService {
         var paymentDetails = razorpayClientWrapper.fetchPayment(request.getRazorpayPaymentId());
         String status = paymentDetails.status();
 
-        if ("captured".equalsIgnoreCase(status) || "authorized".equalsIgnoreCase(status)) {
+        // Verify amount and currency consistency if provided by Razorpay
+        long expectedPaise = payment.getAmount().multiply(new BigDecimal("100"))
+                .setScale(0, RoundingMode.UNNECESSARY)
+                .longValue();
+
+        if (paymentDetails.amount() != null && !paymentDetails.amount().equals(expectedPaise)) {
+            payment.setPaymentStatus(PaymentStatus.FAILED);
+            payment.setFailureReason("Payment amount mismatch: expected " + expectedPaise + " paise but received " + paymentDetails.amount() + " paise");
+            paymentRepository.save(payment);
+            throw new IllegalStateException("Payment amount mismatch: expected " + expectedPaise + " but received " + paymentDetails.amount());
+        }
+
+        if (paymentDetails.currency() != null && !payment.getCurrency().equalsIgnoreCase(paymentDetails.currency())) {
+            payment.setPaymentStatus(PaymentStatus.FAILED);
+            payment.setFailureReason("Payment currency mismatch: expected " + payment.getCurrency() + " but received " + paymentDetails.currency());
+            paymentRepository.save(payment);
+            throw new IllegalStateException("Payment currency mismatch");
+        }
+
+        // Phase 2 Rule: Only "captured" payments become PAID. "authorized" is NOT captured!
+        if ("captured".equalsIgnoreCase(status)) {
             payment.setRazorpayPaymentId(request.getRazorpayPaymentId());
             payment.setRazorpaySignature(request.getRazorpaySignature());
             payment.setPaymentStatus(PaymentStatus.PAID);
@@ -136,11 +159,16 @@ public class PaymentService {
             payment.setPaymentMethod(paymentDetails.method());
             Payment savedPayment = paymentRepository.save(payment);
 
-            Order order = payment.getOrder();
             order.setPaymentStatus(PaymentStatus.PAID);
             orderRepository.save(order);
 
             return PaymentResponse.fromEntity(savedPayment);
+        } else if ("authorized".equalsIgnoreCase(status)) {
+            payment.setRazorpayPaymentId(request.getRazorpayPaymentId());
+            payment.setPaymentMethod(paymentDetails.method());
+            payment.setFailureReason("Payment is authorized but not captured");
+            paymentRepository.save(payment);
+            throw new IllegalStateException("Payment is authorized but not yet captured. Capture confirmation is required before completion.");
         } else {
             payment.setPaymentStatus(PaymentStatus.FAILED);
             payment.setFailureReason("Razorpay payment status is not captured: " + status);
@@ -155,6 +183,24 @@ public class PaymentService {
 
     @Transactional
     public RazorpayOrderResponse retryPayment(String customerEmail, Long orderId) {
+        User customer = getCustomer(customerEmail);
+
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new ResourceNotFoundException("Order not found with id: " + orderId));
+
+        validateOrderOwnership(order, customer);
+        validateOrderEligibilityForPayment(order);
+
+        // Mark previous pending payment attempts as superseded so they do not linger
+        List<Payment> previousPayments = paymentRepository.findByOrderIdOrderByCreatedAtDesc(orderId);
+        for (Payment p : previousPayments) {
+            if (p.getPaymentStatus() == PaymentStatus.PENDING) {
+                p.setPaymentStatus(PaymentStatus.FAILED);
+                p.setFailureReason("Superseded by new payment retry");
+                paymentRepository.save(p);
+            }
+        }
+
         // Re-initiating payment for the same order creates a new Razorpay attempt without creating a new Cravely order
         return createRazorpayOrder(customerEmail, orderId);
     }
@@ -203,17 +249,43 @@ public class PaymentService {
         String eventType = json.optString("event", "");
 
         if ("payment.captured".equalsIgnoreCase(eventType)) {
-            JSONObject paymentEntity = json.optJSONObject("payload")
-                    .optJSONObject("payment")
-                    .optJSONObject("entity");
+            JSONObject paymentEntity = json.optJSONObject("payload") != null
+                    ? json.optJSONObject("payload").optJSONObject("payment") != null
+                    ? json.optJSONObject("payload").optJSONObject("payment").optJSONObject("entity") : null : null;
 
             if (paymentEntity != null) {
                 String razorpayOrderId = paymentEntity.optString("order_id", null);
                 String razorpayPaymentId = paymentEntity.optString("id", null);
                 String method = paymentEntity.optString("method", null);
+                long amountInPaise = paymentEntity.optLong("amount", -1);
 
                 if (razorpayOrderId != null) {
                     paymentRepository.findByRazorpayOrderId(razorpayOrderId).ifPresent(payment -> {
+                        Order order = payment.getOrder();
+
+                        // Safety check: Cancelled or rejected orders must NEVER be reactivated or marked paid
+                        if (order.getOrderStatus() == OrderStatus.CANCELLED || order.getOrderStatus() == OrderStatus.REJECTED) {
+                            payment.setRazorpayPaymentId(razorpayPaymentId);
+                            payment.setPaymentMethod(method);
+                            payment.setPaymentStatus(PaymentStatus.FAILED);
+                            payment.setFailureReason("Payment captured after order was " + order.getOrderStatus());
+                            paymentRepository.save(payment);
+                            return;
+                        }
+
+                        // Amount check if present
+                        if (amountInPaise > 0) {
+                            long expectedPaise = payment.getAmount().multiply(new BigDecimal("100"))
+                                    .setScale(0, RoundingMode.UNNECESSARY)
+                                    .longValue();
+                            if (amountInPaise != expectedPaise) {
+                                payment.setPaymentStatus(PaymentStatus.FAILED);
+                                payment.setFailureReason("Webhook payment amount mismatch: expected " + expectedPaise + " but received " + amountInPaise);
+                                paymentRepository.save(payment);
+                                return;
+                            }
+                        }
+
                         if (payment.getPaymentStatus() != PaymentStatus.PAID) {
                             payment.setRazorpayPaymentId(razorpayPaymentId);
                             payment.setPaymentMethod(method);
@@ -221,7 +293,6 @@ public class PaymentService {
                             payment.setPaidAt(LocalDateTime.now());
                             paymentRepository.save(payment);
 
-                            Order order = payment.getOrder();
                             order.setPaymentStatus(PaymentStatus.PAID);
                             orderRepository.save(order);
                         }
@@ -229,9 +300,9 @@ public class PaymentService {
                 }
             }
         } else if ("payment.failed".equalsIgnoreCase(eventType)) {
-            JSONObject paymentEntity = json.optJSONObject("payload")
-                    .optJSONObject("payment")
-                    .optJSONObject("entity");
+            JSONObject paymentEntity = json.optJSONObject("payload") != null
+                    ? json.optJSONObject("payload").optJSONObject("payment") != null
+                    ? json.optJSONObject("payload").optJSONObject("payment").optJSONObject("entity") : null : null;
 
             if (paymentEntity != null) {
                 String razorpayOrderId = paymentEntity.optString("order_id", null);
@@ -248,20 +319,26 @@ public class PaymentService {
                 }
             }
         } else if ("order.paid".equalsIgnoreCase(eventType)) {
-            JSONObject orderEntity = json.optJSONObject("payload")
-                    .optJSONObject("order")
-                    .optJSONObject("entity");
+            JSONObject orderEntity = json.optJSONObject("payload") != null
+                    ? json.optJSONObject("payload").optJSONObject("order") != null
+                    ? json.optJSONObject("payload").optJSONObject("order").optJSONObject("entity") : null : null;
 
             if (orderEntity != null) {
                 String razorpayOrderId = orderEntity.optString("id", null);
                 if (razorpayOrderId != null) {
                     paymentRepository.findByRazorpayOrderId(razorpayOrderId).ifPresent(payment -> {
+                        Order order = payment.getOrder();
+
+                        // Safety check: Cancelled or rejected orders must NEVER be reactivated
+                        if (order.getOrderStatus() == OrderStatus.CANCELLED || order.getOrderStatus() == OrderStatus.REJECTED) {
+                            return;
+                        }
+
                         if (payment.getPaymentStatus() != PaymentStatus.PAID) {
                             payment.setPaymentStatus(PaymentStatus.PAID);
                             payment.setPaidAt(LocalDateTime.now());
                             paymentRepository.save(payment);
 
-                            Order order = payment.getOrder();
                             order.setPaymentStatus(PaymentStatus.PAID);
                             orderRepository.save(order);
                         }
@@ -307,11 +384,11 @@ public class PaymentService {
         }
 
         if (order.getOrderStatus() == OrderStatus.CANCELLED) {
-            throw new IllegalStateException("Cannot initiate payment for a cancelled order");
+            throw new IllegalStateException("Cannot initiate or verify payment for a cancelled order");
         }
 
         if (order.getOrderStatus() == OrderStatus.REJECTED) {
-            throw new IllegalStateException("Cannot initiate payment for a rejected order");
+            throw new IllegalStateException("Cannot initiate or verify payment for a rejected order");
         }
     }
 }

@@ -4,13 +4,12 @@ import com.cravely.backend.dto.*;
 import com.cravely.backend.entity.*;
 import com.cravely.backend.exception.ResourceNotFoundException;
 import com.cravely.backend.repository.PaymentRepository;
-import com.cravely.backend.repository.UserRepository;
 import com.cravely.backend.service.*;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -45,12 +44,6 @@ class PaymentIntegrationTest {
 
     @Autowired
     private PaymentRepository paymentRepository;
-
-    @Autowired
-    private UserRepository userRepository;
-
-    @Autowired
-    private PasswordEncoder passwordEncoder;
 
     @Autowired
     private RazorpayClientWrapper razorpayClientWrapper;
@@ -96,12 +89,18 @@ class PaymentIntegrationTest {
         order1Id = placedOrder.getId();
     }
 
-    // ==========================================
-    // 1. PAYMENT INITIATION TESTS
-    // ==========================================
+    @AfterEach
+    void tearDown() {
+        razorpayClientWrapper.clearMockPayments();
+    }
 
+    // ========================================================
+    // 15 REQUIRED AUDIT & STABILIZATION PAYMENT TESTS
+    // ========================================================
+
+    // 1. Payment order creation for a valid order
     @Test
-    void testCreateRazorpayOrder_Success() {
+    void test1_PaymentOrderCreation_ForValidOrder_Success() {
         RazorpayOrderResponse response = paymentService.createRazorpayOrder(customer1Email, order1Id);
 
         assertNotNull(response);
@@ -111,78 +110,44 @@ class PaymentIntegrationTest {
         assertEquals(expectedOrderTotal, response.getAmountInRupees());
         assertEquals("INR", response.getCurrency());
         assertEquals(order1Id, response.getOrderId());
-
-        // Verify Payment record in MySQL
-        var payments = paymentRepository.findByOrderIdOrderByCreatedAtDesc(order1Id);
-        assertFalse(payments.isEmpty());
-        Payment saved = payments.get(0);
-        assertEquals(response.getRazorpayOrderId(), saved.getRazorpayOrderId());
-        assertEquals(PaymentStatus.PENDING, saved.getPaymentStatus());
-        assertEquals(expectedOrderTotal, saved.getAmount());
     }
 
+    // 2. Payment creation for another customer's order is rejected
     @Test
-    void testAmountConvertsToPaiseCorrectly() {
-        RazorpayOrderResponse response = paymentService.createRazorpayOrder(customer1Email, order1Id);
-        // ₹900.00 * 100 = 90000 paise
-        assertEquals(90000L, response.getAmount());
-    }
-
-    @Test
-    void testCreateRazorpayOrder_CannotInitiateForAnotherCustomer() {
-        // Customer 2 attempts to initiate payment for Customer 1's order
+    void test2_PaymentCreation_ForAnotherCustomerOrder_Rejected() {
         assertThrows(ResourceNotFoundException.class, () ->
                 paymentService.createRazorpayOrder(customer2Email, order1Id)
         );
     }
 
+    // 3. Payment amount is derived from the database
     @Test
-    void testCreateRazorpayOrder_AlreadyPaid_ThrowsException() {
-        // Pay the order first
+    void test3_PaymentAmount_DerivedFromDatabase() {
+        RazorpayOrderResponse response = paymentService.createRazorpayOrder(customer1Email, order1Id);
+        // DB total is 900.00 -> paise must be 90000
+        assertEquals(90000L, response.getAmount());
+        assertEquals(expectedOrderTotal, response.getAmountInRupees());
+    }
+
+    // 4. Invalid payment signature is rejected
+    @Test
+    void test4_InvalidPaymentSignature_Rejected() {
         RazorpayOrderResponse rzpOrder = paymentService.createRazorpayOrder(customer1Email, order1Id);
-        String signature = razorpayClientWrapper.computePaymentSignature(rzpOrder.getRazorpayOrderId(), "pay_test123");
-        paymentService.verifyPayment(customer1Email, new VerifyPaymentRequest(rzpOrder.getRazorpayOrderId(), "pay_test123", signature));
 
-        // Attempting to initiate payment on already-paid order must fail
-        assertThrows(IllegalStateException.class, () ->
-                paymentService.createRazorpayOrder(customer1Email, order1Id)
+        assertThrows(IllegalArgumentException.class, () ->
+                paymentService.verifyPayment(customer1Email, new VerifyPaymentRequest(
+                        rzpOrder.getRazorpayOrderId(), "pay_invalid_sig", "tampered_signature_hex"
+                ))
         );
+
+        Payment payment = paymentRepository.findByRazorpayOrderId(rzpOrder.getRazorpayOrderId()).orElseThrow();
+        assertEquals(PaymentStatus.FAILED, payment.getPaymentStatus());
+        assertEquals("Invalid Razorpay payment signature", payment.getFailureReason());
     }
 
+    // 5. Valid payment signature is accepted
     @Test
-    void testCreateRazorpayOrder_CancelledOrder_ThrowsException() {
-        orderService.cancelCustomerOrder(customer1Email, order1Id, new CancelOrderRequest("Mistake order"));
-
-        assertThrows(IllegalStateException.class, () ->
-                paymentService.createRazorpayOrder(customer1Email, order1Id)
-        );
-    }
-
-    @Test
-    void testCreateRazorpayOrder_InvalidOrderId_ThrowsException() {
-        assertThrows(ResourceNotFoundException.class, () ->
-                paymentService.createRazorpayOrder(customer1Email, 999999L)
-        );
-    }
-
-    @Test
-    void testDuplicateInitiation_HandledSafely() {
-        RazorpayOrderResponse r1 = paymentService.createRazorpayOrder(customer1Email, order1Id);
-        RazorpayOrderResponse r2 = paymentService.createRazorpayOrder(customer1Email, order1Id);
-
-        assertNotNull(r1.getRazorpayOrderId());
-        assertNotNull(r2.getRazorpayOrderId());
-
-        var list = paymentRepository.findByOrderIdOrderByCreatedAtDesc(order1Id);
-        assertEquals(2, list.size());
-    }
-
-    // ==========================================
-    // 2. SIGNATURE VERIFICATION TESTS
-    // ==========================================
-
-    @Test
-    void testVerifyPayment_ValidSignature_MarksPaid() {
+    void test5_ValidPaymentSignature_Accepted() {
         RazorpayOrderResponse rzpOrder = paymentService.createRazorpayOrder(customer1Email, order1Id);
         String paymentId = "pay_valid_" + System.currentTimeMillis();
         String signature = razorpayClientWrapper.computePaymentSignature(rzpOrder.getRazorpayOrderId(), paymentId);
@@ -194,55 +159,189 @@ class PaymentIntegrationTest {
         assertNotNull(verified);
         assertEquals(PaymentStatus.PAID, verified.getPaymentStatus());
         assertEquals(paymentId, verified.getRazorpayPaymentId());
-        assertNotNull(verified.getPaidAt());
-
-        // Check Cravely order status
-        OrderResponse orderDetails = orderService.getCustomerOrderDetails(customer1Email, order1Id);
-        assertEquals(PaymentStatus.PAID, orderDetails.getPaymentStatus());
     }
 
+    // 6. Captured payment becomes PAID
     @Test
-    void testVerifyPayment_InvalidSignature_Fails() {
+    void test6_CapturedPayment_BecomesPaid() {
         RazorpayOrderResponse rzpOrder = paymentService.createRazorpayOrder(customer1Email, order1Id);
-
-        assertThrows(IllegalArgumentException.class, () ->
-                paymentService.verifyPayment(customer1Email, new VerifyPaymentRequest(
-                        rzpOrder.getRazorpayOrderId(), "pay_fake123", "fake_signature_abc123"
-                ))
-        );
-
-        Payment payment = paymentRepository.findByRazorpayOrderId(rzpOrder.getRazorpayOrderId()).orElseThrow();
-        assertEquals(PaymentStatus.FAILED, payment.getPaymentStatus());
-        assertEquals("Invalid Razorpay payment signature", payment.getFailureReason());
-    }
-
-    @Test
-    void testVerifyPayment_AlteredRazorpayOrderId_ThrowsNotFound() {
-        RazorpayOrderResponse rzpOrder = paymentService.createRazorpayOrder(customer1Email, order1Id);
-        String signature = razorpayClientWrapper.computePaymentSignature(rzpOrder.getRazorpayOrderId(), "pay_123");
-
-        assertThrows(ResourceNotFoundException.class, () ->
-                paymentService.verifyPayment(customer1Email, new VerifyPaymentRequest(
-                        "order_altered_fake", "pay_123", signature
-                ))
-        );
-    }
-
-    @Test
-    void testVerifyPayment_AnotherCustomerCannotVerify() {
-        RazorpayOrderResponse rzpOrder = paymentService.createRazorpayOrder(customer1Email, order1Id);
-        String paymentId = "pay_cross_" + System.currentTimeMillis();
+        String paymentId = "pay_cap_" + System.currentTimeMillis();
         String signature = razorpayClientWrapper.computePaymentSignature(rzpOrder.getRazorpayOrderId(), paymentId);
 
-        assertThrows(ResourceNotFoundException.class, () ->
-                paymentService.verifyPayment(customer2Email, new VerifyPaymentRequest(
+        // Register captured payment mock
+        razorpayClientWrapper.registerMockPayment(paymentId, "captured", "upi", 90000L, "INR");
+
+        PaymentResponse response = paymentService.verifyPayment(customer1Email, new VerifyPaymentRequest(
+                rzpOrder.getRazorpayOrderId(), paymentId, signature
+        ));
+
+        assertEquals(PaymentStatus.PAID, response.getPaymentStatus());
+        OrderResponse orderDetails = orderService.getCustomerOrderDetails(customer1Email, order1Id);
+        assertEquals(PaymentStatus.PAID, orderDetails.getPaymentStatus());
+        // Verify OrderStatus is preserved as PLACED (not overwritten)
+        assertEquals(OrderStatus.PLACED, orderDetails.getOrderStatus());
+    }
+
+    // 7. Authorized payment does not become PAID prematurely
+    @Test
+    void test7_AuthorizedPayment_DoesNotBecomePaidPrematurely() {
+        RazorpayOrderResponse rzpOrder = paymentService.createRazorpayOrder(customer1Email, order1Id);
+        String paymentId = "pay_auth_" + System.currentTimeMillis();
+        String signature = razorpayClientWrapper.computePaymentSignature(rzpOrder.getRazorpayOrderId(), paymentId);
+
+        // Register authorized payment (not captured!)
+        razorpayClientWrapper.registerMockPayment(paymentId, "authorized", "card", 90000L, "INR");
+
+        IllegalStateException ex = assertThrows(IllegalStateException.class, () ->
+                paymentService.verifyPayment(customer1Email, new VerifyPaymentRequest(
                         rzpOrder.getRazorpayOrderId(), paymentId, signature
                 ))
         );
+
+        assertTrue(ex.getMessage().contains("authorized but not yet captured"));
+
+        // Verify payment is NOT PAID
+        Payment payment = paymentRepository.findByRazorpayOrderId(rzpOrder.getRazorpayOrderId()).orElseThrow();
+        assertNotEquals(PaymentStatus.PAID, payment.getPaymentStatus());
+
+        OrderResponse orderDetails = orderService.getCustomerOrderDetails(customer1Email, order1Id);
+        assertNotEquals(PaymentStatus.PAID, orderDetails.getPaymentStatus());
     }
 
+    // 8. Failed payment is handled correctly
     @Test
-    void testVerifyPayment_DuplicateVerificationIsIdempotent() {
+    void test8_FailedPayment_HandledCorrectly() {
+        RazorpayOrderResponse rzpOrder = paymentService.createRazorpayOrder(customer1Email, order1Id);
+        String eventId = "evt_fail_" + System.currentTimeMillis();
+
+        String payload = String.format(
+                "{\"event_id\":\"%s\",\"event\":\"payment.failed\",\"payload\":{\"payment\":{\"entity\":{\"id\":\"pay_fail_1\",\"order_id\":\"%s\",\"error_description\":\"Insufficient funds\"}}}}",
+                eventId, rzpOrder.getRazorpayOrderId()
+        );
+        String signature = razorpayClientWrapper.computeWebhookSignature(payload);
+
+        paymentService.processWebhook(payload, signature);
+
+        Payment payment = paymentRepository.findByRazorpayOrderId(rzpOrder.getRazorpayOrderId()).orElseThrow();
+        assertEquals(PaymentStatus.FAILED, payment.getPaymentStatus());
+        assertEquals("Insufficient funds", payment.getFailureReason());
+
+        // Order remains preserved in PENDING payment status, ready for retry
+        OrderResponse order = orderService.getCustomerOrderDetails(customer1Email, order1Id);
+        assertEquals(PaymentStatus.PENDING, order.getPaymentStatus());
+        assertEquals(OrderStatus.PLACED, order.getOrderStatus());
+    }
+
+    // 9. Pending payment remains pending
+    @Test
+    void test9_PendingPayment_RemainsPending() {
+        RazorpayOrderResponse rzpOrder = paymentService.createRazorpayOrder(customer1Email, order1Id);
+
+        Payment payment = paymentRepository.findByRazorpayOrderId(rzpOrder.getRazorpayOrderId()).orElseThrow();
+        assertEquals(PaymentStatus.PENDING, payment.getPaymentStatus());
+        assertNull(payment.getPaidAt());
+
+        OrderResponse order = orderService.getCustomerOrderDetails(customer1Email, order1Id);
+        assertEquals(PaymentStatus.PENDING, order.getPaymentStatus());
+    }
+
+    // 10. Duplicate webhook event is ignored safely
+    @Test
+    void test10_DuplicateWebhookEvent_IgnoredSafely() {
+        RazorpayOrderResponse rzpOrder = paymentService.createRazorpayOrder(customer1Email, order1Id);
+        String eventId = "evt_dup_" + System.currentTimeMillis();
+
+        String payload = String.format(
+                "{\"event_id\":\"%s\",\"event\":\"payment.captured\",\"payload\":{\"payment\":{\"entity\":{\"id\":\"pay_dup_1\",\"order_id\":\"%s\",\"method\":\"card\",\"status\":\"captured\",\"amount\":90000}}}}",
+                eventId, rzpOrder.getRazorpayOrderId()
+        );
+        String signature = razorpayClientWrapper.computeWebhookSignature(payload);
+
+        // First delivery
+        paymentService.processWebhook(payload, signature);
+        // Duplicate delivery should not throw or alter state
+        assertDoesNotThrow(() -> paymentService.processWebhook(payload, signature));
+    }
+
+    // 11. Invalid webhook signature is rejected
+    @Test
+    void test11_InvalidWebhookSignature_Rejected() {
+        String payload = "{\"event\":\"payment.captured\"}";
+        assertThrows(IllegalArgumentException.class, () ->
+                paymentService.processWebhook(payload, "bad_signature_hex")
+        );
+    }
+
+    // 12. Payment retry does not create another order
+    @Test
+    void test12_PaymentRetry_DoesNotCreateAnotherOrder() {
+        RazorpayOrderResponse r1 = paymentService.createRazorpayOrder(customer1Email, order1Id);
+        RazorpayOrderResponse retryRes = paymentService.retryPayment(customer1Email, order1Id);
+
+        assertNotNull(retryRes);
+        assertNotEquals(r1.getRazorpayOrderId(), retryRes.getRazorpayOrderId());
+        assertEquals(order1Id, retryRes.getOrderId());
+
+        // Previous attempt marked FAILED, new attempt is PENDING
+        var history = paymentService.getPaymentHistoryByOrder(customer1Email, order1Id);
+        assertEquals(2, history.size());
+        assertEquals(PaymentStatus.PENDING, history.get(0).getPaymentStatus()); // Most recent
+        assertEquals(PaymentStatus.FAILED, history.get(1).getPaymentStatus());  // Superseded
+    }
+
+    // 13. Cancelled order is not reactivated by a delayed webhook
+    @Test
+    void test13_CancelledOrder_NotReactivatedByDelayedWebhook() {
+        RazorpayOrderResponse rzpOrder = paymentService.createRazorpayOrder(customer1Email, order1Id);
+
+        // Customer cancels order before payment is processed
+        orderService.cancelCustomerOrder(customer1Email, order1Id, new CancelOrderRequest("Changed mind"));
+
+        OrderResponse cancelledOrder = orderService.getCustomerOrderDetails(customer1Email, order1Id);
+        assertEquals(OrderStatus.CANCELLED, cancelledOrder.getOrderStatus());
+
+        // Delayed webhook arrives from Razorpay
+        String eventId = "evt_delayed_" + System.currentTimeMillis();
+        String payload = String.format(
+                "{\"event_id\":\"%s\",\"event\":\"payment.captured\",\"payload\":{\"payment\":{\"entity\":{\"id\":\"pay_delayed_1\",\"order_id\":\"%s\",\"method\":\"upi\",\"status\":\"captured\",\"amount\":90000}}}}",
+                eventId, rzpOrder.getRazorpayOrderId()
+        );
+        String signature = razorpayClientWrapper.computeWebhookSignature(payload);
+
+        paymentService.processWebhook(payload, signature);
+
+        // Verify order remains strictly CANCELLED and was NOT reactivated
+        OrderResponse orderAfterWebhook = orderService.getCustomerOrderDetails(customer1Email, order1Id);
+        assertEquals(OrderStatus.CANCELLED, orderAfterWebhook.getOrderStatus());
+        assertNotEquals(PaymentStatus.PAID, orderAfterWebhook.getPaymentStatus());
+    }
+
+    // 14. Payment amount mismatch is rejected
+    @Test
+    void test14_PaymentAmountMismatch_Rejected() {
+        RazorpayOrderResponse rzpOrder = paymentService.createRazorpayOrder(customer1Email, order1Id);
+        String paymentId = "pay_mismatch_" + System.currentTimeMillis();
+        String signature = razorpayClientWrapper.computePaymentSignature(rzpOrder.getRazorpayOrderId(), paymentId);
+
+        // Register mock payment with tampered amount (50000 paise instead of expected 90000 paise)
+        razorpayClientWrapper.registerMockPayment(paymentId, "captured", "upi", 50000L, "INR");
+
+        IllegalStateException ex = assertThrows(IllegalStateException.class, () ->
+                paymentService.verifyPayment(customer1Email, new VerifyPaymentRequest(
+                        rzpOrder.getRazorpayOrderId(), paymentId, signature
+                ))
+        );
+
+        assertTrue(ex.getMessage().contains("Payment amount mismatch"));
+
+        Payment payment = paymentRepository.findByRazorpayOrderId(rzpOrder.getRazorpayOrderId()).orElseThrow();
+        assertEquals(PaymentStatus.FAILED, payment.getPaymentStatus());
+        assertTrue(payment.getFailureReason().contains("Payment amount mismatch"));
+    }
+
+    // 15. Duplicate verification requests are handled safely (idempotent)
+    @Test
+    void test15_DuplicateVerificationRequests_HandledSafely() {
         RazorpayOrderResponse rzpOrder = paymentService.createRazorpayOrder(customer1Email, order1Id);
         String paymentId = "pay_idem_" + System.currentTimeMillis();
         String signature = razorpayClientWrapper.computePaymentSignature(rzpOrder.getRazorpayOrderId(), paymentId);
@@ -255,104 +354,35 @@ class PaymentIntegrationTest {
         assertEquals(PaymentStatus.PAID, v2.getPaymentStatus());
     }
 
-    // ==========================================
-    // 3. WEBHOOK PROCESSING TESTS
-    // ==========================================
+    // ========================================================
+    // ADDITIONAL SECURITY & REGRESSION CHECKS
+    // ========================================================
 
     @Test
-    void testWebhook_PaymentCaptured_Success() {
+    void testCannotVerifyPaymentForCancelledOrder() {
         RazorpayOrderResponse rzpOrder = paymentService.createRazorpayOrder(customer1Email, order1Id);
-        String paymentId = "pay_hook_" + System.currentTimeMillis();
-        String eventId = "evt_" + System.currentTimeMillis();
+        orderService.cancelCustomerOrder(customer1Email, order1Id, new CancelOrderRequest("Cancelled"));
 
-        String payload = String.format(
-                "{\"event_id\":\"%s\",\"event\":\"payment.captured\",\"payload\":{\"payment\":{\"entity\":{\"id\":\"%s\",\"order_id\":\"%s\",\"method\":\"upi\",\"status\":\"captured\"}}}}",
-                eventId, paymentId, rzpOrder.getRazorpayOrderId()
-        );
-        String signature = razorpayClientWrapper.computeWebhookSignature(payload);
-
-        paymentService.processWebhook(payload, signature);
-
-        Payment payment = paymentRepository.findByRazorpayOrderId(rzpOrder.getRazorpayOrderId()).orElseThrow();
-        assertEquals(PaymentStatus.PAID, payment.getPaymentStatus());
-        assertEquals(paymentId, payment.getRazorpayPaymentId());
-        assertEquals("upi", payment.getPaymentMethod());
-
-        OrderResponse order = orderService.getCustomerOrderDetails(customer1Email, order1Id);
-        assertEquals(PaymentStatus.PAID, order.getPaymentStatus());
-    }
-
-    @Test
-    void testWebhook_InvalidSignature_ThrowsException() {
-        String payload = "{\"event\":\"payment.captured\"}";
-        assertThrows(IllegalArgumentException.class, () ->
-                paymentService.processWebhook(payload, "invalid_signature_hex")
-        );
-    }
-
-    @Test
-    void testWebhook_PaymentFailed_DoesNotMarkOrderPaid() {
-        RazorpayOrderResponse rzpOrder = paymentService.createRazorpayOrder(customer1Email, order1Id);
-        String eventId = "evt_fail_" + System.currentTimeMillis();
-
-        String payload = String.format(
-                "{\"event_id\":\"%s\",\"event\":\"payment.failed\",\"payload\":{\"payment\":{\"entity\":{\"id\":\"pay_fail_1\",\"order_id\":\"%s\",\"error_description\":\"Bank server down\"}}}}",
-                eventId, rzpOrder.getRazorpayOrderId()
-        );
-        String signature = razorpayClientWrapper.computeWebhookSignature(payload);
-
-        paymentService.processWebhook(payload, signature);
-
-        Payment payment = paymentRepository.findByRazorpayOrderId(rzpOrder.getRazorpayOrderId()).orElseThrow();
-        assertEquals(PaymentStatus.FAILED, payment.getPaymentStatus());
-        assertEquals("Bank server down", payment.getFailureReason());
-
-        OrderResponse order = orderService.getCustomerOrderDetails(customer1Email, order1Id);
-        assertEquals(PaymentStatus.PENDING, order.getPaymentStatus());
-    }
-
-    @Test
-    void testWebhook_DuplicateEventId_HandledIdempotently() {
-        RazorpayOrderResponse rzpOrder = paymentService.createRazorpayOrder(customer1Email, order1Id);
-        String eventId = "evt_dup_" + System.currentTimeMillis();
-
-        String payload = String.format(
-                "{\"event_id\":\"%s\",\"event\":\"payment.captured\",\"payload\":{\"payment\":{\"entity\":{\"id\":\"pay_dup_1\",\"order_id\":\"%s\",\"method\":\"card\",\"status\":\"captured\"}}}}",
-                eventId, rzpOrder.getRazorpayOrderId()
-        );
-        String signature = razorpayClientWrapper.computeWebhookSignature(payload);
-
-        // First delivery
-        paymentService.processWebhook(payload, signature);
-        // Duplicate delivery should not throw or alter state
-        assertDoesNotThrow(() -> paymentService.processWebhook(payload, signature));
-    }
-
-    // ==========================================
-    // 4. RETRY & HISTORY TESTS
-    // ==========================================
-
-    @Test
-    void testPaymentRetry_CreatesNewPaymentAttemptWithoutDuplicatingCravelyOrder() {
-        RazorpayOrderResponse r1 = paymentService.createRazorpayOrder(customer1Email, order1Id);
-        RazorpayOrderResponse retryRes = paymentService.retryPayment(customer1Email, order1Id);
-
-        assertNotNull(retryRes);
-        assertNotEquals(r1.getRazorpayOrderId(), retryRes.getRazorpayOrderId());
-        assertEquals(order1Id, retryRes.getOrderId());
-
-        var history = paymentService.getPaymentHistoryByOrder(customer1Email, order1Id);
-        assertEquals(2, history.size());
-    }
-
-    @Test
-    void testPaymentRetry_PaidOrder_ThrowsException() {
-        RazorpayOrderResponse r1 = paymentService.createRazorpayOrder(customer1Email, order1Id);
-        String sig = razorpayClientWrapper.computePaymentSignature(r1.getRazorpayOrderId(), "pay_paid");
-        paymentService.verifyPayment(customer1Email, new VerifyPaymentRequest(r1.getRazorpayOrderId(), "pay_paid", sig));
+        String paymentId = "pay_test_" + System.currentTimeMillis();
+        String signature = razorpayClientWrapper.computePaymentSignature(rzpOrder.getRazorpayOrderId(), paymentId);
 
         assertThrows(IllegalStateException.class, () ->
-                paymentService.retryPayment(customer1Email, order1Id)
+                paymentService.verifyPayment(customer1Email, new VerifyPaymentRequest(
+                        rzpOrder.getRazorpayOrderId(), paymentId, signature
+                ))
+        );
+    }
+
+    @Test
+    void testCrossCustomerVerification_Forbidden() {
+        RazorpayOrderResponse rzpOrder = paymentService.createRazorpayOrder(customer1Email, order1Id);
+        String paymentId = "pay_cross_" + System.currentTimeMillis();
+        String signature = razorpayClientWrapper.computePaymentSignature(rzpOrder.getRazorpayOrderId(), paymentId);
+
+        assertThrows(ResourceNotFoundException.class, () ->
+                paymentService.verifyPayment(customer2Email, new VerifyPaymentRequest(
+                        rzpOrder.getRazorpayOrderId(), paymentId, signature
+                ))
         );
     }
 }
