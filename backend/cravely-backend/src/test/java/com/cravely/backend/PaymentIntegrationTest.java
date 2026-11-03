@@ -289,31 +289,47 @@ class PaymentIntegrationTest {
         assertEquals(PaymentStatus.FAILED, history.get(1).getPaymentStatus());  // Superseded
     }
 
-    // 13. Cancelled order is not reactivated by a delayed webhook
+    // 13. Captured payment webhook for a CANCELLED order:
+    // Payment becomes PAID, order remains CANCELLED, flagged for refund/reconciliation
     @Test
-    void test13_CancelledOrder_NotReactivatedByDelayedWebhook() {
+    void test13_CapturedPaymentWebhook_ForCancelledOrder_PaymentPaid_OrderRemainsCancelled_FlaggedForRefund() {
         RazorpayOrderResponse rzpOrder = paymentService.createRazorpayOrder(customer1Email, order1Id);
 
-        // Customer cancels order before payment is processed
+        // Customer cancels order before payment capture arrives
         orderService.cancelCustomerOrder(customer1Email, order1Id, new CancelOrderRequest("Changed mind"));
 
         OrderResponse cancelledOrder = orderService.getCustomerOrderDetails(customer1Email, order1Id);
         assertEquals(OrderStatus.CANCELLED, cancelledOrder.getOrderStatus());
+        assertEquals(PaymentStatus.PENDING, cancelledOrder.getPaymentStatus());
 
-        // Delayed webhook arrives from Razorpay
-        String eventId = "evt_delayed_" + System.currentTimeMillis();
+        // Delayed captured webhook arrives from Razorpay
+        String eventId = "evt_delayed_cancel_" + System.currentTimeMillis();
+        String paymentId = "pay_delayed_cap_1";
         String payload = String.format(
-                "{\"event_id\":\"%s\",\"event\":\"payment.captured\",\"payload\":{\"payment\":{\"entity\":{\"id\":\"pay_delayed_1\",\"order_id\":\"%s\",\"method\":\"upi\",\"status\":\"captured\",\"amount\":90000}}}}",
-                eventId, rzpOrder.getRazorpayOrderId()
+                "{\"event_id\":\"%s\",\"event\":\"payment.captured\",\"payload\":{\"payment\":{\"entity\":{\"id\":\"%s\",\"order_id\":\"%s\",\"method\":\"upi\",\"status\":\"captured\",\"amount\":90000}}}}",
+                eventId, paymentId, rzpOrder.getRazorpayOrderId()
         );
         String signature = razorpayClientWrapper.computeWebhookSignature(payload);
 
         paymentService.processWebhook(payload, signature);
 
-        // Verify order remains strictly CANCELLED and was NOT reactivated
+        // 1. Payment must be recorded as PAID
+        Payment payment = paymentRepository.findByRazorpayOrderId(rzpOrder.getRazorpayOrderId()).orElseThrow();
+        assertEquals(PaymentStatus.PAID, payment.getPaymentStatus());
+        assertEquals(paymentId, payment.getRazorpayPaymentId());
+        assertNotNull(payment.getPaidAt());
+
+        // 2. Transaction is flagged for manual reconciliation / refund
+        assertNotNull(payment.getFailureReason());
+        assertTrue(payment.getFailureReason().contains("REQUIRES_REFUND"));
+        assertTrue(payment.getFailureReason().contains("CANCELLED"));
+
+        // 3. Order operational status remains strictly CANCELLED (never reactivated)
         OrderResponse orderAfterWebhook = orderService.getCustomerOrderDetails(customer1Email, order1Id);
         assertEquals(OrderStatus.CANCELLED, orderAfterWebhook.getOrderStatus());
-        assertNotEquals(PaymentStatus.PAID, orderAfterWebhook.getPaymentStatus());
+
+        // 4. Order payment status is updated to PAID
+        assertEquals(PaymentStatus.PAID, orderAfterWebhook.getPaymentStatus());
     }
 
     // 14. Payment amount mismatch is rejected
@@ -355,22 +371,77 @@ class PaymentIntegrationTest {
     }
 
     // ========================================================
-    // ADDITIONAL SECURITY & REGRESSION CHECKS
+    // ADDITIONAL TESTS REQUESTED BY PREFLIGHT CORRECTION
     // ========================================================
 
+    // 16. Captured payment webhook for a REJECTED order:
+    // Payment becomes PAID, order remains REJECTED, flagged for refund/reconciliation
     @Test
-    void testCannotVerifyPaymentForCancelledOrder() {
+    void test16_CapturedPaymentWebhook_ForRejectedOrder_PaymentPaid_OrderRemainsRejected_FlaggedForRefund() {
         RazorpayOrderResponse rzpOrder = paymentService.createRazorpayOrder(customer1Email, order1Id);
-        orderService.cancelCustomerOrder(customer1Email, order1Id, new CancelOrderRequest("Cancelled"));
 
-        String paymentId = "pay_test_" + System.currentTimeMillis();
-        String signature = razorpayClientWrapper.computePaymentSignature(rzpOrder.getRazorpayOrderId(), paymentId);
+        // Restaurant Owner rejects order
+        orderService.rejectOrder(ownerEmail, order1Id, new RejectOrderRequest("Kitchen is at maximum capacity"));
 
-        assertThrows(IllegalStateException.class, () ->
-                paymentService.verifyPayment(customer1Email, new VerifyPaymentRequest(
-                        rzpOrder.getRazorpayOrderId(), paymentId, signature
-                ))
+        OrderResponse rejectedOrder = orderService.getCustomerOrderDetails(customer1Email, order1Id);
+        assertEquals(OrderStatus.REJECTED, rejectedOrder.getOrderStatus());
+        assertEquals(PaymentStatus.PENDING, rejectedOrder.getPaymentStatus());
+
+        // Delayed captured webhook arrives from Razorpay
+        String eventId = "evt_delayed_reject_" + System.currentTimeMillis();
+        String paymentId = "pay_delayed_reject_1";
+        String payload = String.format(
+                "{\"event_id\":\"%s\",\"event\":\"payment.captured\",\"payload\":{\"payment\":{\"entity\":{\"id\":\"%s\",\"order_id\":\"%s\",\"method\":\"card\",\"status\":\"captured\",\"amount\":90000}}}}",
+                eventId, paymentId, rzpOrder.getRazorpayOrderId()
         );
+        String signature = razorpayClientWrapper.computeWebhookSignature(payload);
+
+        paymentService.processWebhook(payload, signature);
+
+        // 1. Payment must be recorded as PAID
+        Payment payment = paymentRepository.findByRazorpayOrderId(rzpOrder.getRazorpayOrderId()).orElseThrow();
+        assertEquals(PaymentStatus.PAID, payment.getPaymentStatus());
+        assertEquals(paymentId, payment.getRazorpayPaymentId());
+        assertNotNull(payment.getPaidAt());
+
+        // 2. Transaction is flagged for manual reconciliation / refund
+        assertNotNull(payment.getFailureReason());
+        assertTrue(payment.getFailureReason().contains("REQUIRES_REFUND"));
+        assertTrue(payment.getFailureReason().contains("REJECTED"));
+
+        // 3. Order operational status remains strictly REJECTED (never reactivated)
+        OrderResponse orderAfterWebhook = orderService.getCustomerOrderDetails(customer1Email, order1Id);
+        assertEquals(OrderStatus.REJECTED, orderAfterWebhook.getOrderStatus());
+
+        // 4. Order payment status is updated to PAID
+        assertEquals(PaymentStatus.PAID, orderAfterWebhook.getPaymentStatus());
+    }
+
+    // 17. Duplicate webhook for cancelled order does not duplicate processing
+    @Test
+    void test17_DuplicateWebhook_ForCancelledOrder_HandledIdempotently() {
+        RazorpayOrderResponse rzpOrder = paymentService.createRazorpayOrder(customer1Email, order1Id);
+        orderService.cancelCustomerOrder(customer1Email, order1Id, new CancelOrderRequest("Customer request"));
+
+        String eventId = "evt_dup_cancel_" + System.currentTimeMillis();
+        String payload = String.format(
+                "{\"event_id\":\"%s\",\"event\":\"payment.captured\",\"payload\":{\"payment\":{\"entity\":{\"id\":\"pay_dup_c_1\",\"order_id\":\"%s\",\"method\":\"upi\",\"status\":\"captured\",\"amount\":90000}}}}",
+                eventId, rzpOrder.getRazorpayOrderId()
+        );
+        String signature = razorpayClientWrapper.computeWebhookSignature(payload);
+
+        // First delivery
+        paymentService.processWebhook(payload, signature);
+
+        Payment p1 = paymentRepository.findByRazorpayOrderId(rzpOrder.getRazorpayOrderId()).orElseThrow();
+        assertEquals(PaymentStatus.PAID, p1.getPaymentStatus());
+
+        // Duplicate delivery should not throw or change state
+        assertDoesNotThrow(() -> paymentService.processWebhook(payload, signature));
+
+        Payment p2 = paymentRepository.findByRazorpayOrderId(rzpOrder.getRazorpayOrderId()).orElseThrow();
+        assertEquals(p1.getId(), p2.getId());
+        assertEquals(PaymentStatus.PAID, p2.getPaymentStatus());
     }
 
     @Test

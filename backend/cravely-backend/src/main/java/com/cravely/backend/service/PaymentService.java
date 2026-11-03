@@ -111,8 +111,6 @@ public class PaymentService {
             return PaymentResponse.fromEntity(payment);
         }
 
-        validateOrderEligibilityForPayment(order);
-
         // Verify cryptographic HMAC-SHA256 signature
         boolean isValidSignature = razorpayClientWrapper.verifyPaymentSignature(
                 request.getRazorpayOrderId(),
@@ -157,8 +155,15 @@ public class PaymentService {
             payment.setPaymentStatus(PaymentStatus.PAID);
             payment.setPaidAt(LocalDateTime.now());
             payment.setPaymentMethod(paymentDetails.method());
+
+            // If order was cancelled or rejected before verification, flag for reconciliation/refund
+            if (order.getOrderStatus() == OrderStatus.CANCELLED || order.getOrderStatus() == OrderStatus.REJECTED) {
+                payment.setFailureReason("REQUIRES_REFUND: Payment captured after order was " + order.getOrderStatus() + ". Flagged for manual reconciliation/refund.");
+            }
+
             Payment savedPayment = paymentRepository.save(payment);
 
+            // Update order's payment status to PAID, preserving the operational status (never reactivate)
             order.setPaymentStatus(PaymentStatus.PAID);
             orderRepository.save(order);
 
@@ -263,13 +268,8 @@ public class PaymentService {
                     paymentRepository.findByRazorpayOrderId(razorpayOrderId).ifPresent(payment -> {
                         Order order = payment.getOrder();
 
-                        // Safety check: Cancelled or rejected orders must NEVER be reactivated or marked paid
-                        if (order.getOrderStatus() == OrderStatus.CANCELLED || order.getOrderStatus() == OrderStatus.REJECTED) {
-                            payment.setRazorpayPaymentId(razorpayPaymentId);
-                            payment.setPaymentMethod(method);
-                            payment.setPaymentStatus(PaymentStatus.FAILED);
-                            payment.setFailureReason("Payment captured after order was " + order.getOrderStatus());
-                            paymentRepository.save(payment);
+                        // Idempotency: if already marked PAID, ignore duplicate processing
+                        if (payment.getPaymentStatus() == PaymentStatus.PAID) {
                             return;
                         }
 
@@ -286,16 +286,25 @@ public class PaymentService {
                             }
                         }
 
-                        if (payment.getPaymentStatus() != PaymentStatus.PAID) {
-                            payment.setRazorpayPaymentId(razorpayPaymentId);
-                            payment.setPaymentMethod(method);
-                            payment.setPaymentStatus(PaymentStatus.PAID);
-                            payment.setPaidAt(LocalDateTime.now());
-                            paymentRepository.save(payment);
+                        // Genuinely captured payment must be recorded as PAID with Razorpay payment ID
+                        payment.setRazorpayPaymentId(razorpayPaymentId);
+                        payment.setPaymentMethod(method);
+                        payment.setPaymentStatus(PaymentStatus.PAID);
+                        payment.setPaidAt(LocalDateTime.now());
 
-                            order.setPaymentStatus(PaymentStatus.PAID);
-                            orderRepository.save(order);
+                        // If the order has already been CANCELLED or REJECTED:
+                        // 1. Record payment as PAID (funds are captured)
+                        // 2. Preserve order's existing operational status (never reactivate)
+                        // 3. Update order's paymentStatus to PAID
+                        // 4. Flag the transaction for manual reconciliation/refund
+                        if (order.getOrderStatus() == OrderStatus.CANCELLED || order.getOrderStatus() == OrderStatus.REJECTED) {
+                            payment.setFailureReason("REQUIRES_REFUND: Payment captured after order was " + order.getOrderStatus() + ". Flagged for manual reconciliation/refund.");
                         }
+
+                        paymentRepository.save(payment);
+
+                        order.setPaymentStatus(PaymentStatus.PAID);
+                        orderRepository.save(order);
                     });
                 }
             }
@@ -329,14 +338,14 @@ public class PaymentService {
                     paymentRepository.findByRazorpayOrderId(razorpayOrderId).ifPresent(payment -> {
                         Order order = payment.getOrder();
 
-                        // Safety check: Cancelled or rejected orders must NEVER be reactivated
-                        if (order.getOrderStatus() == OrderStatus.CANCELLED || order.getOrderStatus() == OrderStatus.REJECTED) {
-                            return;
-                        }
-
                         if (payment.getPaymentStatus() != PaymentStatus.PAID) {
                             payment.setPaymentStatus(PaymentStatus.PAID);
                             payment.setPaidAt(LocalDateTime.now());
+
+                            if (order.getOrderStatus() == OrderStatus.CANCELLED || order.getOrderStatus() == OrderStatus.REJECTED) {
+                                payment.setFailureReason("REQUIRES_REFUND: Order paid after order was " + order.getOrderStatus() + ". Flagged for manual reconciliation/refund.");
+                            }
+
                             paymentRepository.save(payment);
 
                             order.setPaymentStatus(PaymentStatus.PAID);
@@ -384,11 +393,11 @@ public class PaymentService {
         }
 
         if (order.getOrderStatus() == OrderStatus.CANCELLED) {
-            throw new IllegalStateException("Cannot initiate or verify payment for a cancelled order");
+            throw new IllegalStateException("Cannot initiate payment for a cancelled order");
         }
 
         if (order.getOrderStatus() == OrderStatus.REJECTED) {
-            throw new IllegalStateException("Cannot initiate or verify payment for a rejected order");
+            throw new IllegalStateException("Cannot initiate payment for a rejected order");
         }
     }
 }
