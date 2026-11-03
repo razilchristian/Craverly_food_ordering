@@ -1,0 +1,10 @@
+{
+  "description": "Discover restaurants, order meals, and track deliveries, while restaurant owners manage menus and orders and admins oversee platform activity.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}

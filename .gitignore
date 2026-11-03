@@ -1,0 +1,31 @@
+# Target and build outputs
+target/
+build/
+dist/
+out/
+
+# Dependencies
+node_modules/
+
+# Logs
+*.log
+logs/
+
+# IDE and Editor files
+.idea/
+.vscode/
+*.iml
+*.iws
+*.ipr
+.classpath
+.project
+.settings/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# OS generated
+.DS_Store
+Thumbs.db
