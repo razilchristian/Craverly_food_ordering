@@ -31,3 +31,4 @@ public interface OrderRepository extends JpaRepository<Order, Long>, JpaSpecific
 
     Page<Order> findByRestaurantIdAndOrderStatus(Long restaurantId, OrderStatus orderStatus, Pageable pageable);
 }
+

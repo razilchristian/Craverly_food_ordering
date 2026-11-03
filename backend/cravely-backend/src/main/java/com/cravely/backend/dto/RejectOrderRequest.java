@@ -24,3 +24,4 @@ public class RejectOrderRequest {
         this.reason = reason;
     }
 }
+

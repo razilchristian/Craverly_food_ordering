@@ -44,9 +44,9 @@ public class SecurityConfig {
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/api/auth/**", "/api/health").permitAll()
+                        .requestMatchers("/api/auth/**", "/api/health", "/api/payments/webhook").permitAll()
                         .requestMatchers("/api/restaurants/**", "/api/items/**").permitAll()
-                        .requestMatchers("/api/cart/**", "/api/orders/**").hasRole("CUSTOMER")
+                        .requestMatchers("/api/cart/**", "/api/orders/**", "/api/payments/**").hasRole("CUSTOMER")
                         .requestMatchers("/api/owner/**").hasRole("RESTAURANT_OWNER")
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .requestMatchers("/api/users/**").authenticated()
