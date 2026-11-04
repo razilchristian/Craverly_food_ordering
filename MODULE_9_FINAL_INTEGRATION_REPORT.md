@@ -204,6 +204,8 @@ cd backend/cravely-backend
 [INFO] Tests run: 8, Failures: 0, Errors: 0, Skipped: 0 (Time elapsed: 4.8 s)
 [INFO] Running com.cravely.backend.CartIntegrationTest
 [INFO] Tests run: 8, Failures: 0, Errors: 0, Skipped: 0 (Time elapsed: 4.2 s)
+[INFO] Running com.cravely.backend.CorsIntegrationTest
+[INFO] Tests run: 7, Failures: 0, Errors: 0, Skipped: 0 (Time elapsed: 42.0 s)
 [INFO] Running com.cravely.backend.MenuManagementIntegrationTest
 [INFO] Tests run: 12, Failures: 0, Errors: 0, Skipped: 0 (Time elapsed: 5.1 s)
 [INFO] Running com.cravely.backend.OrderManagementIntegrationTest
@@ -220,14 +222,14 @@ cd backend/cravely-backend
 [INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0 (Time elapsed: 1.2 s)
 [INFO] 
 [INFO] Results:
-[INFO] Tests run: 100, Failures: 0, Errors: 0, Skipped: 0
+[INFO] Tests run: 107, Failures: 0, Errors: 0, Skipped: 0
 [INFO] 
 [INFO] ------------------------------------------------------------------------
 [INFO] BUILD SUCCESS
 [INFO] ------------------------------------------------------------------------
-[INFO] Total time: 01:04 min
+[INFO] Total time: 01:35 min
 ```
-**Total Tests:** 100  
+**Total Tests:** 107  
 **Failures:** 0  
 **Errors:** 0  
 **Skipped:** 0  
@@ -357,3 +359,4 @@ dist/assets/index-D-6q2b7c.js   450.52 kB │ gzip: 121.73 kB
 
 ---
 *Report certified and compiled upon full system integration and testing pass.*
+
