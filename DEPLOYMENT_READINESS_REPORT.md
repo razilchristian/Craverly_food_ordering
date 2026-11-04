@@ -147,7 +147,7 @@ private String allowedOriginsConfig;
 
 #### Option 1: Docker Container Deployment (Recommended)
 `backend/Dockerfile` uses a multi-stage build:
-1. **Build Stage:** `maven:3.9.6-eclipse-temurin-22` packages `cravely-backend-0.0.1-SNAPSHOT.jar` in a single pass using `mvn -B -ntp -Dmaven.wagon.http.retryHandler.count=5 clean package -DskipTests`, eliminating redundant dependency passes and mitigating Maven Central HTTP 429 rate limits.
+1. **Build Stage:** `maven:3.9.6-eclipse-temurin-22` routes all dependency resolution through Google's Maven Central mirror (`https://maven-central.storage-download.googleapis.com/maven2/`) via `settings.xml` with HTTP retry handlers (`-Dmaven.wagon.http.retryHandler.count=5`), eliminating Maven Central HTTP 429 rate limit errors on shared cloud builder IPs.
 2. **Runtime Stage:** `eclipse-temurin:22-jre-jammy` runs the jar under an unprivileged `cravely` user.
 3. Automatically uses Render's `${PORT}`.
 

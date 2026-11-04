@@ -2,13 +2,14 @@
 FROM maven:3.9.6-eclipse-temurin-22 AS build
 WORKDIR /app
 
-# Copy pom.xml and source code directly
+# Configure Maven mirror (Google Maven Central) to prevent HTTP 429 rate limits
+COPY backend/cravely-backend/settings.xml /root/.m2/settings.xml
+COPY backend/cravely-backend/settings.xml .
 COPY backend/cravely-backend/pom.xml .
 COPY backend/cravely-backend/src ./src
 
-# Build package in a single pass with HTTP retry support and non-interactive output
-# Prevents duplicate dependency resolution and mitigates Maven Central HTTP 429 rate limits
-RUN mvn -B -ntp -Dmaven.wagon.http.retryHandler.count=5 clean package -DskipTests
+# Build package using Google Maven Central mirror with HTTP retries
+RUN mvn -B -ntp -s settings.xml -Dmaven.wagon.http.retryHandler.count=5 clean package -DskipTests
 
 # Stage 2: Production JRE 22 runtime
 FROM eclipse-temurin:22-jre-jammy
