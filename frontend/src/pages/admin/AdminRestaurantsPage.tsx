@@ -338,3 +338,4 @@ export default function AdminRestaurantsPage() {
     </div>
   )
 }
+

@@ -110,3 +110,4 @@ public class OrderAnalyticsResponse {
         this.recentOrders = recentOrders != null ? recentOrders : new ArrayList<>();
     }
 }
+

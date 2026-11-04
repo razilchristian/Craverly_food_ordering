@@ -117,3 +117,4 @@ public class RevenueAnalyticsResponse {
         this.data = data != null ? data : new ArrayList<>();
     }
 }
+

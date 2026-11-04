@@ -155,3 +155,4 @@ export interface PageResponse<T> {
   size: number
   number: number
 }
+

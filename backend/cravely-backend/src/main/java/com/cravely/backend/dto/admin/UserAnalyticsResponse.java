@@ -83,3 +83,4 @@ public class UserAnalyticsResponse {
         this.recentUsers = recentUsers != null ? recentUsers : new ArrayList<>();
     }
 }
+

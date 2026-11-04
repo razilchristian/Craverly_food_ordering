@@ -253,3 +253,4 @@ npm run dev
 - **Email**: `admin@cravely.com`
 - **Password**: `Password123!`
 - **Admin Portal**: `http://localhost:5173/admin/dashboard`
+

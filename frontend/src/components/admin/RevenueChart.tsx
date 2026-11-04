@@ -140,3 +140,4 @@ export default function RevenueChart({
     </div>
   )
 }
+

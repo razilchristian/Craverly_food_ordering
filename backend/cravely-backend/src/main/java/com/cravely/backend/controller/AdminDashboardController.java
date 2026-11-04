@@ -68,3 +68,4 @@ public class AdminDashboardController {
         return ResponseEntity.ok(ApiResponse.success("Recent activity fetched successfully", activity));
     }
 }
+

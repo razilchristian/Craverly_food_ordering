@@ -103,3 +103,4 @@ public class RecentActivityResponse {
         this.referenceType = referenceType;
     }
 }
+

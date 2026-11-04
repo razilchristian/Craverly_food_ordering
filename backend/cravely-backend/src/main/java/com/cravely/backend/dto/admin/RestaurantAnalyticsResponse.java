@@ -101,3 +101,4 @@ public class RestaurantAnalyticsResponse {
         this.cuisineDistribution = cuisineDistribution != null ? cuisineDistribution : new ArrayList<>();
     }
 }
+
