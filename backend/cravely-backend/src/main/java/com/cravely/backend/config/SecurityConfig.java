@@ -52,12 +52,12 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         // Explicitly permit all OPTIONS preflight requests globally
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                        .requestMatchers("/api/auth/**", "/api/health", "/api/payments/webhook").permitAll()
-                        .requestMatchers("/api/restaurants/**", "/api/items/**").permitAll()
-                        .requestMatchers("/api/cart/**", "/api/orders/**", "/api/payments/**").hasRole("CUSTOMER")
-                        .requestMatchers("/api/owner/**").hasRole("RESTAURANT_OWNER")
-                        .requestMatchers("/api/admin/**").hasRole("ADMIN")
-                        .requestMatchers("/api/users/**").authenticated()
+                        .requestMatchers("/api/auth/**", "/auth/**", "/api/health", "/health", "/api/payments/webhook", "/payments/webhook").permitAll()
+                        .requestMatchers("/api/restaurants/**", "/restaurants/**", "/api/items/**", "/items/**").permitAll()
+                        .requestMatchers("/api/cart/**", "/cart/**", "/api/orders/**", "/orders/**", "/api/payments/**", "/payments/**").hasRole("CUSTOMER")
+                        .requestMatchers("/api/owner/**", "/owner/**").hasRole("RESTAURANT_OWNER")
+                        .requestMatchers("/api/admin/**", "/admin/**").hasRole("ADMIN")
+                        .requestMatchers("/api/users/**", "/users/**").authenticated()
                         .anyRequest().authenticated()
                 )
                 .exceptionHandling(ex -> ex
@@ -86,22 +86,32 @@ public class SecurityConfig {
         origins.add("http://localhost:5173");
         origins.add("http://127.0.0.1:5173");
 
-        if (allowedOriginsConfig != null && !allowedOriginsConfig.trim().isEmpty()) {
-            for (String origin : allowedOriginsConfig.split(",")) {
-                String trimmed = origin.trim();
-                if (!trimmed.isEmpty() && !origins.contains(trimmed)) {
-                    origins.add(trimmed);
-                }
-            }
-        }
-
-        configuration.setAllowedOrigins(origins);
-        configuration.setAllowedOriginPatterns(List.of(
+        List<String> originPatterns = new ArrayList<>(List.of(
                 "http://localhost:[*]",
                 "http://127.0.0.1:[*]",
                 "https://*.vercel.app",
                 "https://*.onrender.com"
         ));
+
+        if (allowedOriginsConfig != null && !allowedOriginsConfig.trim().isEmpty()) {
+            for (String origin : allowedOriginsConfig.split(",")) {
+                String trimmed = origin.trim();
+                if (!trimmed.isEmpty()) {
+                    if (trimmed.contains("*")) {
+                        if (!originPatterns.contains(trimmed)) {
+                            originPatterns.add(trimmed);
+                        }
+                    } else {
+                        if (!origins.contains(trimmed)) {
+                            origins.add(trimmed);
+                        }
+                    }
+                }
+            }
+        }
+
+        configuration.setAllowedOrigins(origins);
+        configuration.setAllowedOriginPatterns(originPatterns);
         configuration.setAllowedMethods(List.of(
                 "GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"
         ));

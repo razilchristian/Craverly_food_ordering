@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
@@ -135,5 +136,46 @@ public class CorsIntegrationTest {
                         .header(HttpHeaders.ORIGIN, "http://localhost:5173"))
                 .andDo(print())
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/register from Vercel deployment domain must be permitted without authentication")
+    void testPostRegisterFromVercelPermitted() throws Exception {
+        String email = "vercel_user_" + System.currentTimeMillis() + "@example.com";
+        mockMvc.perform(post("/api/auth/register")
+                        .header(HttpHeaders.ORIGIN, "https://cravely-food-ordering.vercel.app")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"fullName\":\"Vercel User\",\"email\":\"" + email + "\",\"phone\":\"9876543210\",\"password\":\"Password123!\"}"))
+                .andDo(print())
+                .andExpect(status().isCreated())
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "https://cravely-food-ordering.vercel.app"))
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS, "true"));
+    }
+
+    @Test
+    @DisplayName("POST /auth/register without /api prefix from Vercel deployment domain must be permitted without authentication")
+    void testPostRegisterWithoutApiPrefixFromVercelPermitted() throws Exception {
+        String email = "vercel_user2_" + System.currentTimeMillis() + "@example.com";
+        mockMvc.perform(post("/auth/register")
+                        .header(HttpHeaders.ORIGIN, "https://cravely-food-ordering.vercel.app")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"fullName\":\"Vercel User\",\"email\":\"" + email + "\",\"phone\":\"9876543211\",\"password\":\"Password123!\"}"))
+                .andDo(print())
+                .andExpect(status().isCreated())
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "https://cravely-food-ordering.vercel.app"))
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS, "true"));
+    }
+
+    @Test
+    @DisplayName("Preflight OPTIONS /auth/register without /api prefix from Vercel deployment domain must return 200 OK")
+    void testPreflightRegisterWithoutApiPrefixFromVercel() throws Exception {
+        mockMvc.perform(options("/auth/register")
+                        .header(HttpHeaders.ORIGIN, "https://cravely-food-ordering.vercel.app")
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "POST")
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, "authorization,content-type"))
+                .andDo(print())
+                .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "https://cravely-food-ordering.vercel.app"))
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS, "true"));
     }
 }
