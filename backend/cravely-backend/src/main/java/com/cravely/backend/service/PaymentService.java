@@ -1,6 +1,7 @@
 package com.cravely.backend.service;
 
 import com.cravely.backend.config.RazorpayProperties;
+import com.cravely.backend.dto.PaymentFailureRequest;
 import com.cravely.backend.dto.PaymentResponse;
 import com.cravely.backend.dto.RazorpayOrderResponse;
 import com.cravely.backend.dto.VerifyPaymentRequest;
@@ -180,6 +181,124 @@ public class PaymentService {
             paymentRepository.save(payment);
             throw new IllegalStateException("Payment status is not captured: " + status);
         }
+    }
+
+    // ==========================================
+    // 2B. RECORD PAYMENT FAILURE (CLIENT CALLBACK)
+    // ==========================================
+
+    @Transactional
+    public PaymentResponse recordPaymentFailure(String customerEmail, PaymentFailureRequest request) {
+        User customer = getCustomer(customerEmail);
+
+        Payment payment = paymentRepository.findByRazorpayOrderId(request.getRazorpayOrderId())
+                .orElseThrow(() -> new ResourceNotFoundException("Payment attempt not found for Razorpay order ID: " + request.getRazorpayOrderId()));
+
+        Order order = payment.getOrder();
+        validateOrderOwnership(order, customer);
+
+        // Never downgrade an already PAID payment
+        if (payment.getPaymentStatus() == PaymentStatus.PAID) {
+            return PaymentResponse.fromEntity(payment);
+        }
+
+        if (request.getRazorpayPaymentId() != null && !request.getRazorpayPaymentId().trim().isEmpty()) {
+            payment.setRazorpayPaymentId(request.getRazorpayPaymentId());
+        }
+
+        payment.setPaymentStatus(PaymentStatus.FAILED);
+        String reason = request.getErrorDescription();
+        if (reason == null || reason.trim().isEmpty()) {
+            reason = request.getErrorReason();
+        }
+        if (reason == null || reason.trim().isEmpty()) {
+            reason = "Payment failed during checkout";
+        }
+        if (request.getErrorCode() != null && !request.getErrorCode().trim().isEmpty()) {
+            reason = "[" + request.getErrorCode() + "] " + reason;
+        }
+        payment.setFailureReason(reason);
+
+        Payment savedPayment = paymentRepository.save(payment);
+        return PaymentResponse.fromEntity(savedPayment);
+    }
+
+    // ==========================================
+    // 2C. SIMULATED TEST PAYMENTS (FOR DEVELOPMENT/PLACEHOLDER MODE)
+    // ==========================================
+
+    @Transactional
+    public PaymentResponse simulatePaymentSuccess(String customerEmail, Long orderId) {
+        User customer = getCustomer(customerEmail);
+
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new ResourceNotFoundException("Order not found with id: " + orderId));
+
+        validateOrderOwnership(order, customer);
+        validateOrderEligibilityForPayment(order);
+
+        // Find existing pending payment or create one
+        Payment payment = paymentRepository.findByOrderIdOrderByCreatedAtDesc(orderId).stream()
+                .filter(p -> p.getPaymentStatus() == PaymentStatus.PENDING)
+                .findFirst()
+                .orElse(null);
+
+        if (payment == null) {
+            RazorpayOrderResponse rzpOrder = createRazorpayOrder(customerEmail, orderId);
+            payment = paymentRepository.findByRazorpayOrderId(rzpOrder.getRazorpayOrderId())
+                    .orElseThrow(() -> new IllegalStateException("Failed to retrieve created payment attempt"));
+        }
+
+        String simulatedPaymentId = "pay_sim_" + System.currentTimeMillis();
+        long amountInPaise = payment.getAmount().multiply(new BigDecimal("100"))
+                .setScale(0, RoundingMode.UNNECESSARY)
+                .longValue();
+
+        // Register mock payment details for authoritative fetchPayment validation
+        razorpayClientWrapper.registerMockPayment(
+                simulatedPaymentId,
+                "captured",
+                "upi",
+                amountInPaise,
+                payment.getCurrency()
+        );
+
+        String signature = razorpayClientWrapper.computePaymentSignature(
+                payment.getRazorpayOrderId(),
+                simulatedPaymentId
+        );
+
+        return verifyPayment(customerEmail, new VerifyPaymentRequest(
+                payment.getRazorpayOrderId(),
+                simulatedPaymentId,
+                signature
+        ));
+    }
+
+    @Transactional
+    public PaymentResponse simulatePaymentFailure(String customerEmail, Long orderId) {
+        User customer = getCustomer(customerEmail);
+
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new ResourceNotFoundException("Order not found with id: " + orderId));
+
+        validateOrderOwnership(order, customer);
+
+        Payment payment = paymentRepository.findByOrderIdOrderByCreatedAtDesc(orderId).stream()
+                .filter(p -> p.getPaymentStatus() == PaymentStatus.PENDING)
+                .findFirst()
+                .orElse(null);
+
+        if (payment == null) {
+            RazorpayOrderResponse rzpOrder = createRazorpayOrder(customerEmail, orderId);
+            payment = paymentRepository.findByRazorpayOrderId(rzpOrder.getRazorpayOrderId())
+                    .orElseThrow(() -> new IllegalStateException("Failed to retrieve created payment attempt"));
+        }
+
+        payment.setPaymentStatus(PaymentStatus.FAILED);
+        payment.setFailureReason("Declined by customer in test payment simulation");
+        Payment saved = paymentRepository.save(payment);
+        return PaymentResponse.fromEntity(saved);
     }
 
     // ==========================================

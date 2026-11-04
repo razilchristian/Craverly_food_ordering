@@ -37,6 +37,30 @@ public class PaymentController {
         return ResponseEntity.ok(ApiResponse.success("Payment verified and captured successfully", response));
     }
 
+    @PostMapping("/fail")
+    public ResponseEntity<ApiResponse<PaymentResponse>> recordPaymentFailure(
+            Principal principal,
+            @Valid @RequestBody PaymentFailureRequest request) {
+        PaymentResponse response = paymentService.recordPaymentFailure(principal.getName(), request);
+        return ResponseEntity.ok(ApiResponse.success("Payment failure recorded successfully", response));
+    }
+
+    @PostMapping("/simulate-success")
+    public ResponseEntity<ApiResponse<PaymentResponse>> simulateSuccess(
+            Principal principal,
+            @Valid @RequestBody SimulatePaymentRequest request) {
+        PaymentResponse response = paymentService.simulatePaymentSuccess(principal.getName(), request.getOrderId());
+        return ResponseEntity.ok(ApiResponse.success("Payment simulated successfully", response));
+    }
+
+    @PostMapping("/simulate-failure")
+    public ResponseEntity<ApiResponse<PaymentResponse>> simulateFailure(
+            Principal principal,
+            @Valid @RequestBody SimulatePaymentRequest request) {
+        PaymentResponse response = paymentService.simulatePaymentFailure(principal.getName(), request.getOrderId());
+        return ResponseEntity.ok(ApiResponse.success("Payment simulation recorded as failed", response));
+    }
+
     @PostMapping("/retry/{orderId}")
     public ResponseEntity<ApiResponse<RazorpayOrderResponse>> retryPayment(
             Principal principal,

@@ -38,7 +38,7 @@ public class OrderController {
                 .body(ApiResponse.success("Order placed successfully", order));
     }
 
-    @GetMapping("/my-orders")
+    @GetMapping(value = {"", "/my-orders"})
     public ResponseEntity<ApiResponse<Page<OrderSummaryResponse>>> getMyOrders(
             Principal principal,
             @RequestParam(required = false) OrderStatus status,

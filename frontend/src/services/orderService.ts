@@ -47,7 +47,7 @@ export const orderService = {
     size = 10,
     token?: string
   ): Promise<PageResponse<OrderSummaryResponse>> {
-    const res = await fetch(`${API_BASE}/orders?page=${page}&size=${size}`, {
+    const res = await fetch(`${API_BASE}/orders/my-orders?page=${page}&size=${size}`, {
       method: 'GET',
       headers: getAuthHeaders(token),
     })

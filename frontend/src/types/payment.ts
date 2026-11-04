@@ -17,6 +17,14 @@ export interface VerifyPaymentRequest {
   razorpay_signature: string
 }
 
+export interface PaymentFailureRequest {
+  razorpayOrderId: string
+  razorpayPaymentId?: string
+  errorCode?: string
+  errorDescription?: string
+  errorReason?: string
+}
+
 export interface PaymentResponse {
   id: number
   orderId: number
@@ -61,7 +69,7 @@ declare global {
   interface Window {
     Razorpay: new (options: RazorpayCheckoutOptions) => {
       open: () => void
-      on: (event: string, callback: (response: unknown) => void) => void
+      on: (event: string, callback: (response: any) => void) => void
     }
   }
 }
