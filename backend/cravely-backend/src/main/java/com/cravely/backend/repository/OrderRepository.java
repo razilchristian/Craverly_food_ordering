@@ -9,6 +9,7 @@ import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 @Repository
@@ -30,5 +31,13 @@ public interface OrderRepository extends JpaRepository<Order, Long>, JpaSpecific
     Page<Order> findByRestaurantId(Long restaurantId, Pageable pageable);
 
     Page<Order> findByRestaurantIdAndOrderStatus(Long restaurantId, OrderStatus orderStatus, Pageable pageable);
+
+    long countByOrderStatus(OrderStatus orderStatus);
+
+    long countByCreatedAtBetween(LocalDateTime start, LocalDateTime end);
+
+    long countByOrderStatusAndCreatedAtBetween(OrderStatus orderStatus, LocalDateTime start, LocalDateTime end);
+
+    List<Order> findTop10ByOrderByCreatedAtDesc();
 }
 

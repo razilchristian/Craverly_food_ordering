@@ -26,5 +26,7 @@ public interface FoodItemRepository extends JpaRepository<FoodItem, Long> {
     Optional<FoodItem> findByIdAndAvailableTrue(Long id);
 
     Optional<FoodItem> findByIdAndRestaurantId(Long id, Long restaurantId);
+
+    long countByAvailable(Boolean available);
 }
 

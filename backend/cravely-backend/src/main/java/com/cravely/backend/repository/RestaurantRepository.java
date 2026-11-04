@@ -28,5 +28,16 @@ public interface RestaurantRepository extends JpaRepository<Restaurant, Long> {
     Page<Restaurant> findByStatusAndActiveTrueAndCuisineTypeIgnoreCase(RestaurantStatus status, String cuisineType, Pageable pageable);
 
     Optional<Restaurant> findByIdAndStatusAndActiveTrue(Long id, RestaurantStatus status);
+
+    long countByStatus(RestaurantStatus status);
+
+    long countByActive(Boolean active);
+
+    long countByCreatedAtBetween(java.time.LocalDateTime start, java.time.LocalDateTime end);
+
+    @org.springframework.data.jpa.repository.Query("SELECT r.cuisineType, COUNT(r) FROM Restaurant r GROUP BY r.cuisineType ORDER BY COUNT(r) DESC")
+    List<Object[]> countByCuisineTypeGroup();
+
+    List<Restaurant> findTop10ByOrderByCreatedAtDesc();
 }
 
