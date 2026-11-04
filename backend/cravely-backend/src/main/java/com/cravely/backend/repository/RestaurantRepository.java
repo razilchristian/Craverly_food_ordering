@@ -29,6 +29,8 @@ public interface RestaurantRepository extends JpaRepository<Restaurant, Long> {
 
     Optional<Restaurant> findByIdAndStatusAndActiveTrue(Long id, RestaurantStatus status);
 
+    Optional<Restaurant> findFirstByNameIgnoreCase(String name);
+
     long countByStatus(RestaurantStatus status);
 
     long countByActive(Boolean active);

@@ -130,6 +130,7 @@ export default function CartPage() {
         deliveryPincode: pincode,
         customerPhone: phone,
         customerNote: notes,
+        couponCode: coupon?.code || null,
       }
 
       const orderRes = await fetch(`${API_BASE}/orders`, {

@@ -121,7 +121,7 @@ class RestaurantIntegrationTest {
         RestaurantResponse r3 = restaurantService.createRestaurant(secondOwnerEmail, createSampleRequest("Pasta Fresca", "Bangalore", "Italian"));
 
         // Step 1: Newly created restaurants are PENDING and must NOT appear in public customer listings
-        var publicListBeforeApproval = restaurantService.getApprovedActiveRestaurants(PageRequest.of(0, 10));
+        var publicListBeforeApproval = restaurantService.getApprovedActiveRestaurants(PageRequest.of(0, 100));
         assertTrue(publicListBeforeApproval.getContent().stream().noneMatch(r -> r.getId().equals(r1.getId())));
 
         // Step 2: Admin views pending restaurants
@@ -133,7 +133,7 @@ class RestaurantIntegrationTest {
         restaurantService.rejectRestaurant(r2.getId());
 
         // Step 4: Approved r1 appears in public listings; Rejected r2 does not
-        var publicListAfterApproval = restaurantService.getApprovedActiveRestaurants(PageRequest.of(0, 10));
+        var publicListAfterApproval = restaurantService.getApprovedActiveRestaurants(PageRequest.of(0, 100));
         assertTrue(publicListAfterApproval.getContent().stream().anyMatch(r -> r.getId().equals(r1.getId())));
         assertTrue(publicListAfterApproval.getContent().stream().noneMatch(r -> r.getId().equals(r2.getId())));
 
@@ -145,7 +145,7 @@ class RestaurantIntegrationTest {
 
         // Step 5: Deactivated approved restaurant does not appear in public listings
         restaurantService.deactivateRestaurantByAdmin(r1.getId());
-        var publicListAfterDeactivation = restaurantService.getApprovedActiveRestaurants(PageRequest.of(0, 10));
+        var publicListAfterDeactivation = restaurantService.getApprovedActiveRestaurants(PageRequest.of(0, 100));
         assertTrue(publicListAfterDeactivation.getContent().stream().noneMatch(r -> r.getId().equals(r1.getId())));
 
         // Step 6: Re-activate r1 and verify search and filter

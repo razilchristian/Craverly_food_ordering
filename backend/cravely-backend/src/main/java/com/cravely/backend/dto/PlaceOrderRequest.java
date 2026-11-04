@@ -28,6 +28,9 @@ public class PlaceOrderRequest {
     @Size(max = 500, message = "Customer note cannot exceed 500 characters")
     private String customerNote;
 
+    @Size(max = 50, message = "Coupon code cannot exceed 50 characters")
+    private String couponCode;
+
     public PlaceOrderRequest() {
     }
 
@@ -39,6 +42,12 @@ public class PlaceOrderRequest {
         this.deliveryPincode = deliveryPincode;
         this.customerPhone = customerPhone;
         this.customerNote = customerNote;
+    }
+
+    public PlaceOrderRequest(String deliveryAddress, String deliveryCity, String deliveryState,
+                             String deliveryPincode, String customerPhone, String customerNote, String couponCode) {
+        this(deliveryAddress, deliveryCity, deliveryState, deliveryPincode, customerPhone, customerNote);
+        this.couponCode = couponCode;
     }
 
     public String getDeliveryAddress() {
@@ -87,6 +96,14 @@ public class PlaceOrderRequest {
 
     public void setCustomerNote(String customerNote) {
         this.customerNote = customerNote;
+    }
+
+    public String getCouponCode() {
+        return couponCode;
+    }
+
+    public void setCouponCode(String couponCode) {
+        this.couponCode = couponCode;
     }
 }
 

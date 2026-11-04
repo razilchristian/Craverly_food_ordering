@@ -3,6 +3,7 @@ package com.cravely.backend.controller;
 import com.cravely.backend.dto.AddToCartRequest;
 import com.cravely.backend.dto.ApiResponse;
 import com.cravely.backend.dto.CartResponse;
+import com.cravely.backend.dto.SyncCartRequest;
 import com.cravely.backend.dto.UpdateCartItemRequest;
 import com.cravely.backend.service.CartService;
 import jakarta.validation.Valid;
@@ -35,6 +36,14 @@ public class CartController {
             Principal principal) {
         CartResponse cart = cartService.addToCart(principal.getName(), request);
         return ResponseEntity.ok(ApiResponse.success("Item added to cart successfully", cart));
+    }
+
+    @PostMapping("/sync")
+    public ResponseEntity<ApiResponse<CartResponse>> syncCart(
+            @Valid @RequestBody SyncCartRequest request,
+            Principal principal) {
+        CartResponse cart = cartService.syncCart(principal.getName(), request);
+        return ResponseEntity.ok(ApiResponse.success("Cart synchronized successfully", cart));
     }
 
     @PatchMapping("/items/{cartItemId}")

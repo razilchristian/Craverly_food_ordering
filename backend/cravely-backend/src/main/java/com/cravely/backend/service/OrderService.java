@@ -125,6 +125,15 @@ public class OrderService {
         BigDecimal deliveryFee = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
         BigDecimal taxAmount = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
         BigDecimal discountAmount = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+
+        if (request.getCouponCode() != null && !request.getCouponCode().isBlank()) {
+            String coupon = request.getCouponCode().trim().toUpperCase();
+            if ("WELCOME10".equals(coupon)) {
+                // 10% discount on subtotal
+                discountAmount = subtotal.multiply(new BigDecimal("0.10")).setScale(2, RoundingMode.HALF_UP);
+            }
+        }
+
         BigDecimal totalAmount = subtotal.add(deliveryFee).add(taxAmount).subtract(discountAmount).setScale(2, RoundingMode.HALF_UP);
 
         order.setSubtotal(subtotal);

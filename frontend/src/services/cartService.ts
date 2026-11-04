@@ -79,22 +79,31 @@ export const cartService = {
   },
 
   // Synchronize local frontend items with backend MySQL cart before checkout
-  async syncCart(items: { item: { id: string | number }; qty: number }[], token?: string): Promise<void> {
-    if (!items.length) return
-    // 1. Clear backend cart to start clean
-    try {
-      await this.clearCart(token)
-    } catch {
-      // Cart might already be empty
+  async syncCart(
+    items: { item: { id: string | number; name?: string; restaurantId?: string }; qty: number }[],
+    token?: string
+  ): Promise<BackendCart> {
+    const payload = {
+      items: items.map((entry) => ({
+        foodItemId: typeof entry.item.id === 'number' ? entry.item.id : (Number(entry.item.id) || null),
+        itemCode: String(entry.item.id),
+        name: entry.item.name || '',
+        restaurantId: entry.item.restaurantId || '',
+        quantity: entry.qty,
+      })),
     }
 
-    // 2. Add each item with its quantity
-    for (const entry of items) {
-      const foodItemId = Number(entry.item.id)
-      if (!isNaN(foodItemId) && entry.qty > 0) {
-        await this.addItem(foodItemId, entry.qty, token)
-      }
+    const res = await fetch(`${API_BASE}/cart/sync`, {
+      method: 'POST',
+      headers: getAuthHeaders(token),
+      body: JSON.stringify(payload),
+    })
+
+    const body = await res.json()
+    if (!res.ok || !body.success) {
+      throw new Error(body.message || 'Failed to sync cart with backend')
     }
+    return body.data
   },
 }
 

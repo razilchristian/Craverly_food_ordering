@@ -16,6 +16,8 @@ public interface FoodCategoryRepository extends JpaRepository<FoodCategory, Long
 
     Optional<FoodCategory> findByIdAndRestaurantId(Long id, Long restaurantId);
 
+    Optional<FoodCategory> findFirstByRestaurantIdAndNameIgnoreCase(Long restaurantId, String name);
+
     boolean existsByRestaurantIdAndNameIgnoreCase(Long restaurantId, String name);
 
     boolean existsByRestaurantIdAndNameIgnoreCaseAndIdNot(Long restaurantId, String name, Long id);

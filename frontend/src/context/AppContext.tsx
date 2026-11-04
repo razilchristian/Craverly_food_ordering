@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+import { cartService } from '../services/cartService'
 import type { CartItem, FoodItem } from '../types'
 
 interface Toast { id: number; message: string }
@@ -23,7 +24,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([])
   const [pending, setPending] = useState<FoodItem | null>(null)
 
-  useEffect(() => localStorage.setItem('cravely-cart', JSON.stringify(cart)), [cart])
+  useEffect(() => {
+    localStorage.setItem('cravely-cart', JSON.stringify(cart))
+    const token = localStorage.getItem('cravely_token')
+    if (token) {
+      cartService.syncCart(cart, token).catch(() => {})
+    }
+  }, [cart])
   useEffect(() => localStorage.setItem('cravely-favs', JSON.stringify(favorites)), [favorites])
 
   const toast = (message: string) => {
