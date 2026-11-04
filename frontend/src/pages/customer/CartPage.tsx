@@ -1,8 +1,11 @@
 import { CheckCircle2, CreditCard, Loader2, Navigation, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router'
+import AuthModal from '../../components/common/AuthModal'
 import { EmptyState, QuantitySelector } from '../../components/common/ui'
+import { API_BASE } from '../../config/api'
 import { useApp } from '../../context/AppContext'
+import { cartService } from '../../services/cartService'
 import { paymentService } from '../../services/paymentService'
 import { restaurantService } from '../../services/restaurantService'
 import type { Coupon } from '../../types'
@@ -10,11 +13,12 @@ import type { PaymentResponse } from '../../types/payment'
 import { cartTotals, inr } from '../../utils/format'
 
 export default function CartPage() {
-  const { cart, setQty, toast } = useApp()
+  const { cart, setQty, clear, toast } = useApp()
   const [code, setCode] = useState('')
   const [coupon, setCoupon] = useState<Coupon>()
   const [loading, setLoading] = useState(false)
   const [completedPayment, setCompletedPayment] = useState<PaymentResponse | null>(null)
+  const [showAuthModal, setShowAuthModal] = useState(false)
   const [notes, setNotes] = useState('')
   const [address, setAddress] = useState('123 MG Road, Ellis Bridge')
   const [city, setCity] = useState('Ahmedabad')
@@ -29,12 +33,25 @@ export default function CartPage() {
           <CheckCircle2 className="mx-auto size-16 text-emerald-500" />
           <h1 className="mt-4 text-2xl font-black">Payment Successful!</h1>
           <p className="mt-2 text-muted">
-            Your order has been placed and payment of <strong className="text-ink">{inr(completedPayment.amount)}</strong> has been verified via Razorpay.
+            Your order has been placed and payment of{' '}
+            <strong className="text-ink">{inr(completedPayment.amount)}</strong> has been verified
+            via Razorpay.
           </p>
           <div className="mt-6 rounded-xl bg-slate-50 p-4 text-left text-sm space-y-1">
-            <p><span className="text-muted">Order Number:</span> <strong>{completedPayment.orderNumber}</strong></p>
-            <p><span className="text-muted">Payment ID:</span> <strong>{completedPayment.razorpayPaymentId}</strong></p>
-            <p><span className="text-muted">Status:</span> <span className="inline-block rounded bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-800">{completedPayment.paymentStatus}</span></p>
+            <p>
+              <span className="text-muted">Order Number:</span>{' '}
+              <strong>{completedPayment.orderNumber}</strong>
+            </p>
+            <p>
+              <span className="text-muted">Payment ID:</span>{' '}
+              <strong>{completedPayment.razorpayPaymentId}</strong>
+            </p>
+            <p>
+              <span className="text-muted">Status:</span>{' '}
+              <span className="inline-block rounded bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-800">
+                {completedPayment.paymentStatus}
+              </span>
+            </p>
           </div>
           <div className="mt-6 flex flex-col gap-3">
             <Link
@@ -63,16 +80,24 @@ export default function CartPage() {
         <EmptyState
           title="Your cart is empty"
           text="Good food is just a few taps away."
-          action={<Link to="/restaurants" className="btn-primary">Explore restaurants</Link>}
+          action={
+            <Link to="/restaurants" className="btn-primary">
+              Explore restaurants
+            </Link>
+          }
         />
       </div>
     )
   }
 
-  const r = restaurantService.get(cart[0].item.restaurantId)!
+  const r = restaurantService.get(cart[0].item.restaurantId) || {
+    id: cart[0].item.restaurantId,
+    name: 'Selected Restaurant',
+    deliveryFee: 40,
+  }
   const t = cartTotals(
     cart.reduce((s, c) => s + c.qty * c.item.price, 0),
-    r.deliveryFee,
+    (r as any).deliveryFee ?? 40,
     coupon?.percent,
     coupon?.freeDelivery
   )
@@ -84,16 +109,20 @@ export default function CartPage() {
   }
 
   const handleCheckout = async () => {
+    // 1. Check token in localStorage
+    const token = localStorage.getItem('cravely_token') || ''
+    if (!token) {
+      toast('Please sign in or create an account to place your order')
+      setShowAuthModal(true)
+      return
+    }
+
     setLoading(true)
     try {
-      // 1. Check token in localStorage or use default mock customer token if available
-      const token = localStorage.getItem('cravely_token') || ''
-      if (!token) {
-        toast('Please login to complete your payment')
-        // In local demo without login, initiate mock Razorpay checkout flow
-      }
+      // 2. Synchronize frontend cart items to backend MySQL cart
+      await cartService.syncCart(cart, token)
 
-      // Try placing order on live backend
+      // 3. Place order on live backend
       const orderPayload = {
         deliveryAddress: address,
         deliveryCity: city,
@@ -103,7 +132,7 @@ export default function CartPage() {
         customerNote: notes,
       }
 
-      const orderRes = await fetch('http://localhost:8081/api/orders', {
+      const orderRes = await fetch(`${API_BASE}/orders`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -120,10 +149,13 @@ export default function CartPage() {
       const orderData = await orderRes.json()
       const cravelyOrder = orderData.data
 
-      // 2. Create Razorpay Order
+      // Clear local frontend cart now that order is created in database
+      clear()
+
+      // 4. Create Razorpay Order
       const rzpOrder = await paymentService.createPaymentOrder(cravelyOrder.id, token)
 
-      // 3. Open Razorpay Checkout modal
+      // 5. Open Razorpay Checkout modal
       await paymentService.openCheckout(
         rzpOrder,
         token,
@@ -154,22 +186,38 @@ export default function CartPage() {
       <section className="lg:col-span-8">
         <h1 className="text-2xl font-extrabold md:text-3xl">Your cart</h1>
         <p className="mt-1 text-muted">
-          From <Link to={`/restaurants/${r.id}`} className="font-semibold text-ink underline">{r.name}</Link>
+          From{' '}
+          <Link to={`/restaurants/${r.id}`} className="font-semibold text-ink underline">
+            {r.name}
+          </Link>
         </p>
 
         <ul className="mt-6 divide-y divide-line rounded-2xl border border-line bg-white">
           {cart.map(({ item, qty }) => (
-            <li key={item.id} className="flex flex-wrap items-center gap-3 p-4 sm:flex-nowrap sm:gap-4">
+            <li
+              key={item.id}
+              className="flex flex-wrap items-center gap-3 p-4 sm:flex-nowrap sm:gap-4"
+            >
               <img src={item.image} alt="" className="size-16 rounded-xl object-cover" />
               <div className="min-w-0 flex-1">
                 <p className="font-bold">{item.name}</p>
                 <p className="text-sm text-muted">{inr(item.price)} each</p>
               </div>
               <div className="ml-[4.75rem] sm:ml-0">
-                <QuantitySelector qty={qty} label={item.name} onChange={(q) => setQty(item.id, q)} />
+                <QuantitySelector
+                  qty={qty}
+                  label={item.name}
+                  onChange={(q) => setQty(item.id, q)}
+                />
               </div>
-              <span className="hidden w-20 text-right font-semibold sm:block">{inr(qty * item.price)}</span>
-              <button aria-label={`Remove ${item.name}`} onClick={() => setQty(item.id, 0)} className="text-muted hover:text-error">
+              <span className="hidden w-20 text-right font-semibold sm:block">
+                {inr(qty * item.price)}
+              </span>
+              <button
+                aria-label={`Remove ${item.name}`}
+                onClick={() => setQty(item.id, 0)}
+                className="text-muted hover:text-error"
+              >
                 <Trash2 className="size-4" />
               </button>
             </li>
@@ -182,44 +230,88 @@ export default function CartPage() {
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <div className="sm:col-span-2">
               <label className="text-xs font-semibold text-muted">Street Address</label>
-              <input value={address} onChange={(e) => setAddress(e.target.value)} className="mt-1 w-full rounded-xl border border-line p-2.5 text-sm" />
+              <input
+                value={address}
+                onChange={(e) => setAddress(e.target.value)}
+                className="mt-1 w-full rounded-xl border border-line p-2.5 text-sm"
+              />
             </div>
             <div>
               <label className="text-xs font-semibold text-muted">City</label>
-              <input value={city} onChange={(e) => setCity(e.target.value)} className="mt-1 w-full rounded-xl border border-line p-2.5 text-sm" />
+              <input
+                value={city}
+                onChange={(e) => setCity(e.target.value)}
+                className="mt-1 w-full rounded-xl border border-line p-2.5 text-sm"
+              />
             </div>
             <div>
               <label className="text-xs font-semibold text-muted">Pincode</label>
-              <input value={pincode} onChange={(e) => setPincode(e.target.value)} className="mt-1 w-full rounded-xl border border-line p-2.5 text-sm" />
+              <input
+                value={pincode}
+                onChange={(e) => setPincode(e.target.value)}
+                className="mt-1 w-full rounded-xl border border-line p-2.5 text-sm"
+              />
             </div>
             <div>
               <label className="text-xs font-semibold text-muted">State</label>
-              <input value={state} onChange={(e) => setState(e.target.value)} className="mt-1 w-full rounded-xl border border-line p-2.5 text-sm" />
+              <input
+                value={state}
+                onChange={(e) => setState(e.target.value)}
+                className="mt-1 w-full rounded-xl border border-line p-2.5 text-sm"
+              />
             </div>
             <div>
               <label className="text-xs font-semibold text-muted">Phone Number</label>
-              <input value={phone} onChange={(e) => setPhone(e.target.value)} className="mt-1 w-full rounded-xl border border-line p-2.5 text-sm" />
+              <input
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                className="mt-1 w-full rounded-xl border border-line p-2.5 text-sm"
+              />
             </div>
           </div>
-          <label htmlFor="notes" className="mt-4 block text-xs font-semibold text-muted">Order instructions (Optional)</label>
-          <textarea id="notes" rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g. Less spicy, leave at door" className="mt-1 w-full rounded-xl border border-line p-2.5 text-sm" />
+          <label htmlFor="notes" className="mt-4 block text-xs font-semibold text-muted">
+            Order instructions (Optional)
+          </label>
+          <textarea
+            id="notes"
+            rows={2}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="e.g. Less spicy, leave at door"
+            className="mt-1 w-full rounded-xl border border-line p-2.5 text-sm"
+          />
         </div>
 
-        <Link to={`/restaurants/${r.id}`} className="btn-ghost mt-4 inline-block">Add more items</Link>
+        <Link to={`/restaurants/${r.id}`} className="btn-ghost mt-4 inline-block">
+          Add more items
+        </Link>
       </section>
 
       <aside className="lg:col-span-4">
         <div className="sticky top-20 rounded-2xl border border-line bg-white p-5">
           <div className="flex gap-2">
-            <input value={code} onChange={(e) => setCode(e.target.value)} aria-label="Coupon code" placeholder="Try WELCOME10" className="h-10 flex-1 rounded-xl border border-line px-3 text-sm uppercase" />
-            <button onClick={apply} className="btn-outline">Apply</button>
+            <input
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              aria-label="Coupon code"
+              placeholder="Try WELCOME10"
+              className="h-10 flex-1 rounded-xl border border-line px-3 text-sm uppercase"
+            />
+            <button onClick={apply} className="btn-outline">
+              Apply
+            </button>
           </div>
           <dl className="mt-5 space-y-2 text-sm">
             {row('Item subtotal', inr(t.subtotal))}
             {row('Delivery fee', t.delivery ? inr(t.delivery) : 'Free')}
             {row('Packaging', inr(t.packaging))}
             {row('GST (5%)', inr(t.tax))}
-            {t.discount > 0 && <div className="flex justify-between text-success"><dt>Discount</dt><dd>−{inr(t.discount)}</dd></div>}
+            {t.discount > 0 && (
+              <div className="flex justify-between text-success">
+                <dt>Discount</dt>
+                <dd>−{inr(t.discount)}</dd>
+              </div>
+            )}
             <div className="flex justify-between border-t border-line pt-3 text-base font-bold">
               <dt>Grand total</dt>
               <dd>{inr(t.total)}</dd>
@@ -230,7 +322,11 @@ export default function CartPage() {
             disabled={loading}
             onClick={handleCheckout}
           >
-            {loading ? <Loader2 className="size-4 animate-spin" /> : <CreditCard className="size-4" />}
+            {loading ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <CreditCard className="size-4" />
+            )}
             {loading ? 'Initiating Checkout...' : 'Pay with Razorpay'}
           </button>
           <p className="mt-3 text-center text-xs text-muted">
@@ -238,6 +334,14 @@ export default function CartPage() {
           </p>
         </div>
       </aside>
+
+      <AuthModal
+        isOpen={showAuthModal}
+        onClose={() => setShowAuthModal(false)}
+        onSuccess={() => {
+          toast('Signed in successfully! Click Pay to proceed.')
+        }}
+      />
     </div>
   )
 }

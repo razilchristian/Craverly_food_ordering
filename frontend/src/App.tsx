@@ -2,6 +2,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router'
 import { AppProvider } from './context/AppContext'
 import AdminLayout from './layouts/AdminLayout'
 import CustomerLayout from './layouts/CustomerLayout'
+import OwnerLayout from './layouts/OwnerLayout'
 import AdminAnalyticsPage from './pages/admin/AdminAnalyticsPage'
 import AdminDashboardPage from './pages/admin/AdminDashboardPage'
 import AdminFoodItemsPage from './pages/admin/AdminFoodItemsPage'
@@ -12,6 +13,7 @@ import CartPage from './pages/customer/CartPage'
 import HomePage from './pages/customer/HomePage'
 import OrderTrackingPage from './pages/customer/OrderTrackingPage'
 import OrdersPage from './pages/customer/OrdersPage'
+import OwnerDashboardPage from './pages/owner/OwnerDashboardPage'
 import RestaurantDetailPage from './pages/customer/RestaurantDetailPage'
 import RestaurantsPage from './pages/customer/RestaurantsPage'
 
@@ -28,6 +30,12 @@ export default function App() {
             <Route path="cart" element={<CartPage />} />
             <Route path="orders" element={<OrdersPage />} />
             <Route path="orders/:orderId/tracking" element={<OrderTrackingPage />} />
+          </Route>
+
+          {/* Restaurant Owner / Partner Portal */}
+          <Route path="owner" element={<OwnerLayout />}>
+            <Route index element={<Navigate to="/owner/dashboard" replace />} />
+            <Route path="dashboard" element={<OwnerDashboardPage />} />
           </Route>
 
           {/* Admin Management Portal */}

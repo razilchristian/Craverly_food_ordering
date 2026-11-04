@@ -5,7 +5,9 @@ import type {
   VerifyPaymentRequest,
 } from '../types/payment'
 
-const API_BASE = 'http://localhost:8081/api/payments'
+import { API_BASE as BASE_URL } from '../config/api'
+
+const API_BASE = `${BASE_URL}/payments`
 
 export const paymentService = {
   /**

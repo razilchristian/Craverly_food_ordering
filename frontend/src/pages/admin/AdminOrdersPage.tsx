@@ -15,6 +15,7 @@ import {
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router'
 import { adminService } from '../../services/adminService'
+import { API_BASE } from '../../config/api'
 import type { PageResponse } from '../../types/admin'
 import { inr } from '../../utils/format'
 
@@ -81,7 +82,7 @@ export default function AdminOrdersPage() {
     setSuccessMsg(null)
     try {
       const token = localStorage.getItem('cravely_token') || ''
-      const res = await fetch(`http://localhost:8081/api/admin/orders/${orderId}/out-for-delivery`, {
+      const res = await fetch(`${API_BASE}/admin/orders/${orderId}/out-for-delivery`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -107,7 +108,7 @@ export default function AdminOrdersPage() {
     setSuccessMsg(null)
     try {
       const token = localStorage.getItem('cravely_token') || ''
-      const res = await fetch(`http://localhost:8081/api/admin/orders/${orderId}/delivered`, {
+      const res = await fetch(`${API_BASE}/admin/orders/${orderId}/delivered`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',

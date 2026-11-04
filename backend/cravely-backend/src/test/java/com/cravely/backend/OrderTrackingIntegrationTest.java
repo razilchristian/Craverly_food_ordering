@@ -253,7 +253,7 @@ class OrderTrackingIntegrationTest {
         orderService.markOrderPreparing(owner1.getEmail(), order.getId());
         orderService.markOrderReady(owner1.getEmail(), order.getId());
 
-        orderService.markOrderOutForDeliveryByOwner(owner1.getEmail(), order.getId());
+        orderService.markOrderOutForDeliveryByAdmin(admin.getEmail(), order.getId());
 
         List<OrderStatusHistory> history = historyRepository.findByOrderIdOrderByChangedAtAsc(order.getId());
         assertEquals(5, history.size());
@@ -261,7 +261,7 @@ class OrderTrackingIntegrationTest {
         OrderStatusHistory entry = history.get(4);
         assertEquals(OrderStatus.READY_FOR_PICKUP, entry.getPreviousStatus());
         assertEquals(OrderStatus.OUT_FOR_DELIVERY, entry.getNewStatus());
-        assertEquals(owner1.getId(), entry.getChangedBy().getId());
+        assertEquals(admin.getId(), entry.getChangedBy().getId());
         assertTrue(entry.getRemarks().contains("delivery"));
     }
 
@@ -271,9 +271,9 @@ class OrderTrackingIntegrationTest {
         orderService.acceptOrder(owner1.getEmail(), order.getId());
         orderService.markOrderPreparing(owner1.getEmail(), order.getId());
         orderService.markOrderReady(owner1.getEmail(), order.getId());
-        orderService.markOrderOutForDeliveryByOwner(owner1.getEmail(), order.getId());
+        orderService.markOrderOutForDeliveryByAdmin(admin.getEmail(), order.getId());
 
-        orderService.markOrderDeliveredByOwner(owner1.getEmail(), order.getId());
+        orderService.markOrderDeliveredByAdmin(admin.getEmail(), order.getId());
 
         List<OrderStatusHistory> history = historyRepository.findByOrderIdOrderByChangedAtAsc(order.getId());
         assertEquals(6, history.size());
@@ -281,7 +281,7 @@ class OrderTrackingIntegrationTest {
         OrderStatusHistory entry = history.get(5);
         assertEquals(OrderStatus.OUT_FOR_DELIVERY, entry.getPreviousStatus());
         assertEquals(OrderStatus.DELIVERED, entry.getNewStatus());
-        assertEquals(owner1.getId(), entry.getChangedBy().getId());
+        assertEquals(admin.getId(), entry.getChangedBy().getId());
         assertTrue(entry.getRemarks().contains("delivered"));
     }
 
@@ -336,8 +336,8 @@ class OrderTrackingIntegrationTest {
         orderService.acceptOrder(owner1.getEmail(), order.getId());
         orderService.markOrderPreparing(owner1.getEmail(), order.getId());
         orderService.markOrderReady(owner1.getEmail(), order.getId());
-        orderService.markOrderOutForDeliveryByOwner(owner1.getEmail(), order.getId());
-        orderService.markOrderDeliveredByOwner(owner1.getEmail(), order.getId());
+        orderService.markOrderOutForDeliveryByAdmin(admin.getEmail(), order.getId());
+        orderService.markOrderDeliveredByAdmin(admin.getEmail(), order.getId());
 
         List<OrderStatusHistoryResponse> history = orderService.getOrderTrackingHistory(customer1.getEmail(), order.getId());
         assertEquals(6, history.size());
@@ -519,6 +519,22 @@ class OrderTrackingIntegrationTest {
         );
         assertThrows(AuthenticationCredentialsNotFoundException.class, () ->
                 adminOrderController.getAdminOrderTracking(1L)
+        );
+    }
+
+    @Test
+    void test20_OwnerDeliveryTransitionsRejectedWithAccessDenied() {
+        OrderResponse order = placeCustomer1Order();
+        orderService.acceptOrder(owner1.getEmail(), order.getId());
+        orderService.markOrderPreparing(owner1.getEmail(), order.getId());
+        orderService.markOrderReady(owner1.getEmail(), order.getId());
+
+        // Attempting out-for-delivery or delivered by owner must fail with AccessDeniedException
+        assertThrows(AccessDeniedException.class, () ->
+                orderService.markOrderOutForDeliveryByOwner(owner1.getEmail(), order.getId())
+        );
+        assertThrows(AccessDeniedException.class, () ->
+                orderService.markOrderDeliveredByOwner(owner1.getEmail(), order.getId())
         );
     }
 }

@@ -346,38 +346,12 @@ public class OrderService {
 
     @Transactional
     public OrderResponse markOrderOutForDeliveryByOwner(String ownerEmail, Long orderId) {
-        Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new ResourceNotFoundException("Order not found with id: " + orderId));
-
-        User owner = validateOwnerRestaurantAccess(ownerEmail, order.getRestaurant().getId());
-
-        if (order.getOrderStatus() != OrderStatus.READY_FOR_PICKUP) {
-            throw new IllegalStateException("Only orders in READY_FOR_PICKUP status can move to OUT_FOR_DELIVERY. Current status: " + order.getOrderStatus());
-        }
-
-        OrderStatus previousStatus = order.getOrderStatus();
-        order.setOrderStatus(OrderStatus.OUT_FOR_DELIVERY);
-        Order saved = orderRepository.save(order);
-        recordStatusHistory(saved, previousStatus, OrderStatus.OUT_FOR_DELIVERY, owner, "Order is out for delivery");
-        return OrderResponse.fromEntity(saved);
+        throw new AccessDeniedException("Delivery transitions are reserved for platform administrators. Only ADMIN role can transition orders to OUT_FOR_DELIVERY.");
     }
 
     @Transactional
     public OrderResponse markOrderDeliveredByOwner(String ownerEmail, Long orderId) {
-        Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new ResourceNotFoundException("Order not found with id: " + orderId));
-
-        User owner = validateOwnerRestaurantAccess(ownerEmail, order.getRestaurant().getId());
-
-        if (order.getOrderStatus() != OrderStatus.OUT_FOR_DELIVERY) {
-            throw new IllegalStateException("Only orders in OUT_FOR_DELIVERY status can move to DELIVERED. Current status: " + order.getOrderStatus());
-        }
-
-        OrderStatus previousStatus = order.getOrderStatus();
-        order.setOrderStatus(OrderStatus.DELIVERED);
-        Order saved = orderRepository.save(order);
-        recordStatusHistory(saved, previousStatus, OrderStatus.DELIVERED, owner, "Order delivered successfully");
-        return OrderResponse.fromEntity(saved);
+        throw new AccessDeniedException("Delivery transitions are reserved for platform administrators. Only ADMIN role can transition orders to DELIVERED.");
     }
 
     // ==========================================

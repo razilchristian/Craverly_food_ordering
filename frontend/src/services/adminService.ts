@@ -10,16 +10,7 @@ import type {
   UserAnalyticsResponse,
   UserResponse,
 } from '../types/admin'
-
-const API_BASE = 'http://localhost:8081/api'
-
-const getAuthHeaders = (token?: string) => {
-  const authToken = token || localStorage.getItem('cravely_token') || ''
-  return {
-    'Content-Type': 'application/json',
-    ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
-  }
-}
+import { API_BASE, getAuthHeaders } from '../config/api'
 
 export const adminService = {
   // ----------------------------------------------------
