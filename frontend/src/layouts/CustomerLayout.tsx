@@ -1,4 +1,4 @@
-import { Compass, Home, MapPin, Search, ShoppingBag, Tag, User } from 'lucide-react'
+import { ClipboardList, Compass, Home, MapPin, Search, ShoppingBag, Tag, User } from 'lucide-react'
 import { useState } from 'react'
 import { Link, NavLink, Outlet, useNavigate } from 'react-router'
 import { BrandLogo } from '../components/common/ui'
@@ -8,6 +8,7 @@ const links = [
   { to: '/', label: 'Home', icon: Home },
   { to: '/restaurants', label: 'Explore', icon: Compass },
   { to: '/#offers', label: 'Offers', icon: Tag },
+  { to: '/orders', label: 'Orders', icon: ClipboardList },
   { to: '/cart', label: 'Cart', icon: ShoppingBag },
 ]
 
@@ -29,7 +30,7 @@ export default function CustomerLayout() {
             <input value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search" placeholder="Search dishes, restaurants, or cuisines..." className="h-10 w-full rounded-xl border border-line bg-cream pl-9 pr-3 text-sm outline-none focus:border-primary" />
           </form>
           <nav className="ml-auto hidden items-center gap-6 text-sm font-medium md:flex" aria-label="Main">
-            {links.slice(0, 3).map((l) => (
+            {links.slice(0, 4).map((l) => (
               <NavLink key={l.to} to={l.to} end className={({ isActive }) => (isActive && l.to !== '/#offers' ? 'text-primary' : 'text-ink hover:text-primary')}>{l.label}</NavLink>
             ))}
           </nav>
@@ -54,7 +55,7 @@ export default function CustomerLayout() {
         </div>
         <p className="border-t border-line py-4 text-center text-xs text-muted">© 2026 Cravely. All data is fictional and for demonstration only.</p>
       </footer>
-      <nav className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 border-t border-line bg-white md:hidden" aria-label="Mobile">
+      <nav className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-line bg-white md:hidden" aria-label="Mobile">
         {links.map((l) => (
           <NavLink key={l.to} to={l.to} end className={({ isActive }) => `flex flex-col items-center gap-0.5 py-2 text-[11px] font-medium ${isActive ? 'text-primary' : 'text-muted'}`}>
             <l.icon className="size-5" />{l.label}

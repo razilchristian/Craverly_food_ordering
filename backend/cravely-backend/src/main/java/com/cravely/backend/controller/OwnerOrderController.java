@@ -1,9 +1,6 @@
 package com.cravely.backend.controller;
 
-import com.cravely.backend.dto.ApiResponse;
-import com.cravely.backend.dto.OrderResponse;
-import com.cravely.backend.dto.OrderSummaryResponse;
-import com.cravely.backend.dto.RejectOrderRequest;
+import com.cravely.backend.dto.*;
 import com.cravely.backend.entity.OrderStatus;
 import com.cravely.backend.service.OrderService;
 import jakarta.validation.Valid;
@@ -48,6 +45,14 @@ public class OwnerOrderController {
         return ResponseEntity.ok(ApiResponse.success("Order details fetched successfully", order));
     }
 
+    @GetMapping("/orders/{orderId}/tracking")
+    public ResponseEntity<ApiResponse<OrderTrackingResponse>> getOwnerOrderTracking(
+            Principal principal,
+            @PathVariable Long orderId) {
+        OrderTrackingResponse tracking = orderService.getOwnerOrderTracking(principal.getName(), orderId);
+        return ResponseEntity.ok(ApiResponse.success("Order tracking fetched successfully", tracking));
+    }
+
     @PatchMapping("/orders/{orderId}/accept")
     public ResponseEntity<ApiResponse<OrderResponse>> acceptOrder(
             Principal principal,
@@ -80,5 +85,20 @@ public class OwnerOrderController {
         OrderResponse order = orderService.markOrderReady(principal.getName(), orderId);
         return ResponseEntity.ok(ApiResponse.success("Order marked as ready for pickup", order));
     }
-}
 
+    @PatchMapping("/orders/{orderId}/out-for-delivery")
+    public ResponseEntity<ApiResponse<OrderResponse>> markOutForDelivery(
+            Principal principal,
+            @PathVariable Long orderId) {
+        OrderResponse order = orderService.markOrderOutForDeliveryByOwner(principal.getName(), orderId);
+        return ResponseEntity.ok(ApiResponse.success("Order marked as out for delivery", order));
+    }
+
+    @PatchMapping("/orders/{orderId}/delivered")
+    public ResponseEntity<ApiResponse<OrderResponse>> markDelivered(
+            Principal principal,
+            @PathVariable Long orderId) {
+        OrderResponse order = orderService.markOrderDeliveredByOwner(principal.getName(), orderId);
+        return ResponseEntity.ok(ApiResponse.success("Order marked as delivered", order));
+    }
+}

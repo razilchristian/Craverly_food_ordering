@@ -22,6 +22,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.stream.Collectors;
 
 @Service
 public class OrderService {
@@ -32,19 +33,22 @@ public class OrderService {
     private final FoodItemRepository foodItemRepository;
     private final RestaurantRepository restaurantRepository;
     private final UserRepository userRepository;
+    private final OrderStatusHistoryRepository orderStatusHistoryRepository;
 
     public OrderService(OrderRepository orderRepository,
                         OrderItemRepository orderItemRepository,
                         CartRepository cartRepository,
                         FoodItemRepository foodItemRepository,
                         RestaurantRepository restaurantRepository,
-                        UserRepository userRepository) {
+                        UserRepository userRepository,
+                        OrderStatusHistoryRepository orderStatusHistoryRepository) {
         this.orderRepository = orderRepository;
         this.orderItemRepository = orderItemRepository;
         this.cartRepository = cartRepository;
         this.foodItemRepository = foodItemRepository;
         this.restaurantRepository = restaurantRepository;
         this.userRepository = userRepository;
+        this.orderStatusHistoryRepository = orderStatusHistoryRepository;
     }
 
     // ==========================================
@@ -117,7 +121,7 @@ public class OrderService {
             order.addItem(orderItem);
         }
 
-        // Configure charges (kept at 0.00 until pricing/payment module)
+        // Configure charges
         BigDecimal deliveryFee = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
         BigDecimal taxAmount = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
         BigDecimal discountAmount = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
@@ -130,6 +134,9 @@ public class OrderService {
         order.setTotalAmount(totalAmount);
 
         Order savedOrder = orderRepository.save(order);
+
+        // Record initial status history (newStatus = PLACED, previousStatus = null)
+        recordStatusHistory(savedOrder, null, OrderStatus.PLACED, customer, "Order placed successfully");
 
         // Transactional cart clear: Cart is only cleared after successful order creation
         cart.clearItems();
@@ -187,11 +194,42 @@ public class OrderService {
                     + "'. Cancellation is only permitted when the order is PLACED or ACCEPTED.");
         }
 
+        OrderStatus previousStatus = order.getOrderStatus();
         order.setOrderStatus(OrderStatus.CANCELLED);
         order.setCancellationReason(request.getReason() != null ? request.getReason().trim() : "Cancelled by customer");
 
         Order saved = orderRepository.save(order);
+        recordStatusHistory(saved, previousStatus, OrderStatus.CANCELLED, customer, saved.getCancellationReason());
         return OrderResponse.fromEntity(saved);
+    }
+
+    // Customer Order Tracking
+    @Transactional(readOnly = true)
+    public OrderTrackingResponse getOrderTracking(String customerEmail, Long orderId) {
+        User customer = getCustomer(customerEmail);
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new ResourceNotFoundException("Order not found with id: " + orderId));
+
+        if (!order.getCustomer().getId().equals(customer.getId())) {
+            throw new ResourceNotFoundException("Order not found with id: " + orderId);
+        }
+
+        List<OrderStatusHistory> history = orderStatusHistoryRepository.findByOrderIdOrderByChangedAtAsc(orderId);
+        return OrderTrackingResponse.fromEntity(order, history);
+    }
+
+    @Transactional(readOnly = true)
+    public List<OrderStatusHistoryResponse> getOrderTrackingHistory(String customerEmail, Long orderId) {
+        User customer = getCustomer(customerEmail);
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new ResourceNotFoundException("Order not found with id: " + orderId));
+
+        if (!order.getCustomer().getId().equals(customer.getId())) {
+            throw new ResourceNotFoundException("Order not found with id: " + orderId);
+        }
+
+        List<OrderStatusHistory> history = orderStatusHistoryRepository.findByOrderIdOrderByChangedAtAsc(orderId);
+        return history.stream().map(OrderStatusHistoryResponse::fromEntity).collect(Collectors.toList());
     }
 
     // ==========================================
@@ -222,19 +260,32 @@ public class OrderService {
         return OrderResponse.fromEntity(order);
     }
 
-    @Transactional
-    public OrderResponse acceptOrder(String ownerEmail, Long orderId) {
+    @Transactional(readOnly = true)
+    public OrderTrackingResponse getOwnerOrderTracking(String ownerEmail, Long orderId) {
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new ResourceNotFoundException("Order not found with id: " + orderId));
 
         validateOwnerRestaurantAccess(ownerEmail, order.getRestaurant().getId());
 
+        List<OrderStatusHistory> history = orderStatusHistoryRepository.findByOrderIdOrderByChangedAtAsc(orderId);
+        return OrderTrackingResponse.fromEntity(order, history);
+    }
+
+    @Transactional
+    public OrderResponse acceptOrder(String ownerEmail, Long orderId) {
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new ResourceNotFoundException("Order not found with id: " + orderId));
+
+        User owner = validateOwnerRestaurantAccess(ownerEmail, order.getRestaurant().getId());
+
         if (order.getOrderStatus() != OrderStatus.PLACED) {
             throw new IllegalStateException("Only orders in PLACED status can be accepted. Current status: " + order.getOrderStatus());
         }
 
+        OrderStatus previousStatus = order.getOrderStatus();
         order.setOrderStatus(OrderStatus.ACCEPTED);
         Order saved = orderRepository.save(order);
+        recordStatusHistory(saved, previousStatus, OrderStatus.ACCEPTED, owner, "Restaurant accepted the order");
         return OrderResponse.fromEntity(saved);
     }
 
@@ -243,15 +294,17 @@ public class OrderService {
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new ResourceNotFoundException("Order not found with id: " + orderId));
 
-        validateOwnerRestaurantAccess(ownerEmail, order.getRestaurant().getId());
+        User owner = validateOwnerRestaurantAccess(ownerEmail, order.getRestaurant().getId());
 
         if (order.getOrderStatus() != OrderStatus.PLACED) {
             throw new IllegalStateException("Only orders in PLACED status can be rejected. Current status: " + order.getOrderStatus());
         }
 
+        OrderStatus previousStatus = order.getOrderStatus();
         order.setOrderStatus(OrderStatus.REJECTED);
         order.setRejectionReason(request.getReason() != null ? request.getReason().trim() : "Rejected by restaurant");
         Order saved = orderRepository.save(order);
+        recordStatusHistory(saved, previousStatus, OrderStatus.REJECTED, owner, saved.getRejectionReason());
         return OrderResponse.fromEntity(saved);
     }
 
@@ -260,14 +313,16 @@ public class OrderService {
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new ResourceNotFoundException("Order not found with id: " + orderId));
 
-        validateOwnerRestaurantAccess(ownerEmail, order.getRestaurant().getId());
+        User owner = validateOwnerRestaurantAccess(ownerEmail, order.getRestaurant().getId());
 
         if (order.getOrderStatus() != OrderStatus.ACCEPTED) {
             throw new IllegalStateException("Only orders in ACCEPTED status can move to PREPARING. Current status: " + order.getOrderStatus());
         }
 
+        OrderStatus previousStatus = order.getOrderStatus();
         order.setOrderStatus(OrderStatus.PREPARING);
         Order saved = orderRepository.save(order);
+        recordStatusHistory(saved, previousStatus, OrderStatus.PREPARING, owner, "Food preparation started");
         return OrderResponse.fromEntity(saved);
     }
 
@@ -276,14 +331,52 @@ public class OrderService {
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new ResourceNotFoundException("Order not found with id: " + orderId));
 
-        validateOwnerRestaurantAccess(ownerEmail, order.getRestaurant().getId());
+        User owner = validateOwnerRestaurantAccess(ownerEmail, order.getRestaurant().getId());
 
         if (order.getOrderStatus() != OrderStatus.PREPARING) {
             throw new IllegalStateException("Only orders in PREPARING status can move to READY_FOR_PICKUP. Current status: " + order.getOrderStatus());
         }
 
+        OrderStatus previousStatus = order.getOrderStatus();
         order.setOrderStatus(OrderStatus.READY_FOR_PICKUP);
         Order saved = orderRepository.save(order);
+        recordStatusHistory(saved, previousStatus, OrderStatus.READY_FOR_PICKUP, owner, "Order is ready for pickup");
+        return OrderResponse.fromEntity(saved);
+    }
+
+    @Transactional
+    public OrderResponse markOrderOutForDeliveryByOwner(String ownerEmail, Long orderId) {
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new ResourceNotFoundException("Order not found with id: " + orderId));
+
+        User owner = validateOwnerRestaurantAccess(ownerEmail, order.getRestaurant().getId());
+
+        if (order.getOrderStatus() != OrderStatus.READY_FOR_PICKUP) {
+            throw new IllegalStateException("Only orders in READY_FOR_PICKUP status can move to OUT_FOR_DELIVERY. Current status: " + order.getOrderStatus());
+        }
+
+        OrderStatus previousStatus = order.getOrderStatus();
+        order.setOrderStatus(OrderStatus.OUT_FOR_DELIVERY);
+        Order saved = orderRepository.save(order);
+        recordStatusHistory(saved, previousStatus, OrderStatus.OUT_FOR_DELIVERY, owner, "Order is out for delivery");
+        return OrderResponse.fromEntity(saved);
+    }
+
+    @Transactional
+    public OrderResponse markOrderDeliveredByOwner(String ownerEmail, Long orderId) {
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new ResourceNotFoundException("Order not found with id: " + orderId));
+
+        User owner = validateOwnerRestaurantAccess(ownerEmail, order.getRestaurant().getId());
+
+        if (order.getOrderStatus() != OrderStatus.OUT_FOR_DELIVERY) {
+            throw new IllegalStateException("Only orders in OUT_FOR_DELIVERY status can move to DELIVERED. Current status: " + order.getOrderStatus());
+        }
+
+        OrderStatus previousStatus = order.getOrderStatus();
+        order.setOrderStatus(OrderStatus.DELIVERED);
+        Order saved = orderRepository.save(order);
+        recordStatusHistory(saved, previousStatus, OrderStatus.DELIVERED, owner, "Order delivered successfully");
         return OrderResponse.fromEntity(saved);
     }
 
@@ -329,9 +422,62 @@ public class OrderService {
         return OrderResponse.fromEntity(order);
     }
 
+    @Transactional(readOnly = true)
+    public OrderTrackingResponse getAdminOrderTracking(Long orderId) {
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new ResourceNotFoundException("Order not found with id: " + orderId));
+        List<OrderStatusHistory> history = orderStatusHistoryRepository.findByOrderIdOrderByChangedAtAsc(orderId);
+        return OrderTrackingResponse.fromEntity(order, history);
+    }
+
+    @Transactional
+    public OrderResponse markOrderOutForDeliveryByAdmin(String adminEmail, Long orderId) {
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new ResourceNotFoundException("Order not found with id: " + orderId));
+
+        User admin = validateAdminAccess(adminEmail);
+
+        if (order.getOrderStatus() != OrderStatus.READY_FOR_PICKUP) {
+            throw new IllegalStateException("Only orders in READY_FOR_PICKUP status can move to OUT_FOR_DELIVERY. Current status: " + order.getOrderStatus());
+        }
+
+        OrderStatus previousStatus = order.getOrderStatus();
+        order.setOrderStatus(OrderStatus.OUT_FOR_DELIVERY);
+        Order saved = orderRepository.save(order);
+        recordStatusHistory(saved, previousStatus, OrderStatus.OUT_FOR_DELIVERY, admin, "Order is out for delivery (updated by admin)");
+        return OrderResponse.fromEntity(saved);
+    }
+
+    @Transactional
+    public OrderResponse markOrderDeliveredByAdmin(String adminEmail, Long orderId) {
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new ResourceNotFoundException("Order not found with id: " + orderId));
+
+        User admin = validateAdminAccess(adminEmail);
+
+        if (order.getOrderStatus() != OrderStatus.OUT_FOR_DELIVERY) {
+            throw new IllegalStateException("Only orders in OUT_FOR_DELIVERY status can move to DELIVERED. Current status: " + order.getOrderStatus());
+        }
+
+        OrderStatus previousStatus = order.getOrderStatus();
+        order.setOrderStatus(OrderStatus.DELIVERED);
+        Order saved = orderRepository.save(order);
+        recordStatusHistory(saved, previousStatus, OrderStatus.DELIVERED, admin, "Order delivered successfully (updated by admin)");
+        return OrderResponse.fromEntity(saved);
+    }
+
     // ==========================================
     // HELPER & VALIDATION METHODS
     // ==========================================
+
+    private void recordStatusHistory(Order order, OrderStatus previousStatus, OrderStatus newStatus, User actor, String remarks) {
+        if (previousStatus != null && previousStatus == newStatus) {
+            return; // Avoid duplicate history for unchanged status
+        }
+        OrderStatusHistory history = new OrderStatusHistory(order, previousStatus, newStatus, actor, remarks);
+        orderStatusHistoryRepository.save(history);
+        order.addStatusHistory(history);
+    }
 
     private User getCustomer(String email) {
         User user = userRepository.findByEmail(email)
@@ -348,7 +494,7 @@ public class OrderService {
         return user;
     }
 
-    private void validateOwnerRestaurantAccess(String ownerEmail, Long restaurantId) {
+    private User validateOwnerRestaurantAccess(String ownerEmail, Long restaurantId) {
         User owner = userRepository.findByEmail(ownerEmail)
                 .orElseThrow(() -> new ResourceNotFoundException("Restaurant owner account not found"));
 
@@ -362,6 +508,19 @@ public class OrderService {
         if (!restaurant.getOwner().getId().equals(owner.getId())) {
             throw new AccessDeniedException("You do not have permission to manage orders for this restaurant");
         }
+
+        return owner;
+    }
+
+    private User validateAdminAccess(String adminEmail) {
+        User admin = userRepository.findByEmail(adminEmail)
+                .orElseThrow(() -> new ResourceNotFoundException("Admin account not found"));
+
+        if (admin.getRole() != Role.ADMIN) {
+            throw new AccessDeniedException("Only administrators can perform this operation");
+        }
+
+        return admin;
     }
 
     private String generateUniqueOrderNumber() {

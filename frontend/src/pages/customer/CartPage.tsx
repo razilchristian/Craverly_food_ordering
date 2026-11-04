@@ -1,4 +1,4 @@
-import { CheckCircle2, CreditCard, Loader2, Trash2 } from 'lucide-react'
+import { CheckCircle2, CreditCard, Loader2, Navigation, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router'
 import { EmptyState, QuantitySelector } from '../../components/common/ui'
@@ -36,9 +36,22 @@ export default function CartPage() {
             <p><span className="text-muted">Payment ID:</span> <strong>{completedPayment.razorpayPaymentId}</strong></p>
             <p><span className="text-muted">Status:</span> <span className="inline-block rounded bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-800">{completedPayment.paymentStatus}</span></p>
           </div>
-          <Link to="/restaurants" className="btn-primary mt-6 block w-full text-center">
-            Order More Delicious Food
-          </Link>
+          <div className="mt-6 flex flex-col gap-3">
+            <Link
+              to={`/orders/${completedPayment.orderId}/tracking`}
+              className="btn-primary w-full text-center flex items-center justify-center gap-2"
+            >
+              <Navigation className="size-4" /> Track Your Order
+            </Link>
+            <div className="flex gap-3">
+              <Link to="/orders" className="btn-secondary flex-1 text-center text-xs">
+                My Orders
+              </Link>
+              <Link to="/restaurants" className="btn-secondary flex-1 text-center text-xs">
+                Explore Menu
+              </Link>
+            </div>
+          </div>
         </div>
       </div>
     )

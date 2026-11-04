@@ -3,6 +3,7 @@ package com.cravely.backend.controller;
 import com.cravely.backend.dto.ApiResponse;
 import com.cravely.backend.dto.OrderResponse;
 import com.cravely.backend.dto.OrderSummaryResponse;
+import com.cravely.backend.dto.OrderTrackingResponse;
 import com.cravely.backend.entity.OrderStatus;
 import com.cravely.backend.service.OrderService;
 import org.springframework.data.domain.Page;
@@ -12,6 +13,8 @@ import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+
+import java.security.Principal;
 
 @RestController
 @RequestMapping("/api/admin/orders")
@@ -41,6 +44,28 @@ public class AdminOrderController {
     public ResponseEntity<ApiResponse<OrderResponse>> getAdminOrderDetails(@PathVariable Long orderId) {
         OrderResponse order = orderService.getAdminOrderDetails(orderId);
         return ResponseEntity.ok(ApiResponse.success("Order details fetched successfully", order));
+    }
+
+    @GetMapping("/{orderId}/tracking")
+    public ResponseEntity<ApiResponse<OrderTrackingResponse>> getAdminOrderTracking(@PathVariable Long orderId) {
+        OrderTrackingResponse tracking = orderService.getAdminOrderTracking(orderId);
+        return ResponseEntity.ok(ApiResponse.success("Order tracking details fetched successfully", tracking));
+    }
+
+    @PatchMapping("/{orderId}/out-for-delivery")
+    public ResponseEntity<ApiResponse<OrderResponse>> markOrderOutForDelivery(
+            Principal principal,
+            @PathVariable Long orderId) {
+        OrderResponse order = orderService.markOrderOutForDeliveryByAdmin(principal.getName(), orderId);
+        return ResponseEntity.ok(ApiResponse.success("Order status updated to OUT_FOR_DELIVERY", order));
+    }
+
+    @PatchMapping("/{orderId}/delivered")
+    public ResponseEntity<ApiResponse<OrderResponse>> markOrderDelivered(
+            Principal principal,
+            @PathVariable Long orderId) {
+        OrderResponse order = orderService.markOrderDeliveredByAdmin(principal.getName(), orderId);
+        return ResponseEntity.ok(ApiResponse.success("Order status updated to DELIVERED", order));
     }
 }
 

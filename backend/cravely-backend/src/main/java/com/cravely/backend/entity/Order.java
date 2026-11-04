@@ -95,6 +95,10 @@ public class Order {
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<OrderItem> items = new ArrayList<>();
 
+    @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OrderBy("changedAt ASC")
+    private List<OrderStatusHistory> statusHistory = new ArrayList<>();
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -122,6 +126,11 @@ public class Order {
     public void removeItem(OrderItem item) {
         items.remove(item);
         item.setOrder(null);
+    }
+
+    public void addStatusHistory(OrderStatusHistory history) {
+        statusHistory.add(history);
+        history.setOrder(this);
     }
 
     public Long getId() {
@@ -284,6 +293,14 @@ public class Order {
         this.items = items;
     }
 
+    public List<OrderStatusHistory> getStatusHistory() {
+        return statusHistory;
+    }
+
+    public void setStatusHistory(List<OrderStatusHistory> statusHistory) {
+        this.statusHistory = statusHistory;
+    }
+
     public LocalDateTime getCreatedAt() {
         return createdAt;
     }
@@ -300,4 +317,3 @@ public class Order {
         this.updatedAt = updatedAt;
     }
 }
-

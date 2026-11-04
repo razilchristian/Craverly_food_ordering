@@ -1,10 +1,6 @@
 package com.cravely.backend.controller;
 
-import com.cravely.backend.dto.ApiResponse;
-import com.cravely.backend.dto.CancelOrderRequest;
-import com.cravely.backend.dto.OrderResponse;
-import com.cravely.backend.dto.OrderSummaryResponse;
-import com.cravely.backend.dto.PlaceOrderRequest;
+import com.cravely.backend.dto.*;
 import com.cravely.backend.entity.OrderStatus;
 import com.cravely.backend.service.OrderService;
 import jakarta.validation.Valid;
@@ -20,6 +16,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.security.Principal;
 import java.time.LocalDateTime;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/orders")
@@ -60,6 +57,22 @@ public class OrderController {
             @PathVariable Long orderId) {
         OrderResponse order = orderService.getCustomerOrderDetails(principal.getName(), orderId);
         return ResponseEntity.ok(ApiResponse.success("Order details fetched successfully", order));
+    }
+
+    @GetMapping("/{orderId}/tracking")
+    public ResponseEntity<ApiResponse<OrderTrackingResponse>> getOrderTracking(
+            Principal principal,
+            @PathVariable Long orderId) {
+        OrderTrackingResponse tracking = orderService.getOrderTracking(principal.getName(), orderId);
+        return ResponseEntity.ok(ApiResponse.success("Order tracking fetched successfully", tracking));
+    }
+
+    @GetMapping("/{orderId}/tracking/history")
+    public ResponseEntity<ApiResponse<List<OrderStatusHistoryResponse>>> getOrderTrackingHistory(
+            Principal principal,
+            @PathVariable Long orderId) {
+        List<OrderStatusHistoryResponse> history = orderService.getOrderTrackingHistory(principal.getName(), orderId);
+        return ResponseEntity.ok(ApiResponse.success("Order tracking history fetched successfully", history));
     }
 
     @PatchMapping("/{orderId}/cancel")
