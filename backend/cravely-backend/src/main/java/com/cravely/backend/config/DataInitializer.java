@@ -34,7 +34,23 @@ public class DataInitializer implements CommandLineRunner {
     @Override
     @Transactional
     public void run(String... args) {
+        seedAdminUser();
         seedPizzaTheory();
+    }
+
+    @Transactional
+    public void seedAdminUser() {
+        if (userRepository.findByEmail("admin@cravely.com").isEmpty()) {
+            User admin = new User(
+                    "Cravely Administrator",
+                    "admin@cravely.com",
+                    "9876543200",
+                    passwordEncoder.encode("Password123!"),
+                    Role.ADMIN,
+                    true
+            );
+            userRepository.save(admin);
+        }
     }
 
     @Transactional

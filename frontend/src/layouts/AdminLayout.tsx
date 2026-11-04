@@ -144,7 +144,7 @@ export default function AdminLayout() {
           <div className="flex items-center gap-3">
             <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 border border-emerald-200 px-3 py-1 text-xs font-bold text-emerald-800">
               <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
-              Live Backend (port 8081)
+              API Connected
             </span>
             <div className="size-8 rounded-full bg-slate-900 text-white flex items-center justify-center font-bold text-xs">
               AD

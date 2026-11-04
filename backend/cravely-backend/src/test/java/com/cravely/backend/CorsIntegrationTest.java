@@ -98,6 +98,19 @@ public class CorsIntegrationTest {
     }
 
     @Test
+    @DisplayName("Preflight OPTIONS from Vercel deployment domain (*.vercel.app) must return 200 OK")
+    void testPreflightVercelDomainAllowed() throws Exception {
+        mockMvc.perform(options("/api/auth/register")
+                        .header(HttpHeaders.ORIGIN, "https://cravely-food-ordering.vercel.app")
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "POST")
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, "authorization,content-type"))
+                .andDo(print())
+                .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "https://cravely-food-ordering.vercel.app"))
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS, "true"));
+    }
+
+    @Test
     @DisplayName("Disallowed origin must be rejected with 403 Forbidden on preflight")
     void testPreflightDisallowedOriginRejected() throws Exception {
         mockMvc.perform(options("/api/auth/register")
