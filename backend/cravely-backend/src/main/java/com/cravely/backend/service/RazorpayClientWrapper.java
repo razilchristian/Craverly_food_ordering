@@ -3,6 +3,8 @@ package com.cravely.backend.service;
 import com.cravely.backend.config.RazorpayProperties;
 import com.razorpay.RazorpayClient;
 import org.json.JSONObject;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import javax.crypto.Mac;
@@ -15,6 +17,9 @@ import java.util.concurrent.ThreadLocalRandom;
 
 @Service
 public class RazorpayClientWrapper {
+
+    private static final Logger log = LoggerFactory.getLogger(RazorpayClientWrapper.class);
+    private static final String DEFAULT_SIMULATED_SECRET = "cravely_simulated_secret_key";
 
     private final RazorpayProperties razorpayProperties;
     private final ConcurrentHashMap<String, RazorpayPaymentDetails> mockPaymentOverrides = new ConcurrentHashMap<>();
@@ -35,11 +40,20 @@ public class RazorpayClientWrapper {
     }
 
     public RazorpayOrderDetails createOrder(long amountInPaise, String currency, String receipt) {
+        String effectiveCurrency = currency != null ? currency : razorpayProperties.getCurrency();
+
+        // If credentials are not configured, generate a simulated mock order without calling Razorpay API
+        if (!razorpayProperties.isConfigured()) {
+            log.info("Razorpay credentials not configured. Generating simulated order for receipt: {}", receipt);
+            String mockOrderId = "order_mock_" + System.currentTimeMillis() + "_" + ThreadLocalRandom.current().nextInt(1000, 9999);
+            return new RazorpayOrderDetails(mockOrderId, effectiveCurrency, amountInPaise, "created");
+        }
+
         try {
             RazorpayClient client = new RazorpayClient(razorpayProperties.getKeyId(), razorpayProperties.getKeySecret());
             JSONObject orderRequest = new JSONObject();
             orderRequest.put("amount", amountInPaise);
-            orderRequest.put("currency", currency != null ? currency : razorpayProperties.getCurrency());
+            orderRequest.put("currency", effectiveCurrency);
             orderRequest.put("receipt", receipt);
 
             com.razorpay.Order order = client.orders.create(orderRequest);
@@ -50,11 +64,7 @@ public class RazorpayClientWrapper {
                     order.get("status")
             );
         } catch (Exception e) {
-            // Safe development placeholder fallback
-            if (razorpayProperties.getKeyId() == null || razorpayProperties.getKeyId().contains("placeholder")) {
-                String mockOrderId = "order_mock_" + System.currentTimeMillis() + "_" + ThreadLocalRandom.current().nextInt(1000, 9999);
-                return new RazorpayOrderDetails(mockOrderId, currency != null ? currency : "INR", amountInPaise, "created");
-            }
+            log.error("Failed to create Razorpay order via API: {}", e.getMessage());
             throw new RuntimeException("Failed to create Razorpay order: " + e.getMessage(), e);
         }
     }
@@ -62,6 +72,10 @@ public class RazorpayClientWrapper {
     public RazorpayPaymentDetails fetchPayment(String razorpayPaymentId) {
         if (mockPaymentOverrides.containsKey(razorpayPaymentId)) {
             return mockPaymentOverrides.get(razorpayPaymentId);
+        }
+
+        if (!razorpayProperties.isConfigured()) {
+            return new RazorpayPaymentDetails(razorpayPaymentId, "captured", "upi", null, "INR");
         }
 
         try {
@@ -73,9 +87,7 @@ public class RazorpayClientWrapper {
             String currency = payment.has("currency") ? String.valueOf(payment.get("currency")) : null;
             return new RazorpayPaymentDetails(razorpayPaymentId, status, method, amount, currency);
         } catch (Exception e) {
-            if (razorpayProperties.getKeyId() == null || razorpayProperties.getKeyId().contains("placeholder")) {
-                return new RazorpayPaymentDetails(razorpayPaymentId, "captured", "upi", null, "INR");
-            }
+            log.error("Failed to fetch Razorpay payment via API: {}", e.getMessage());
             throw new RuntimeException("Failed to fetch Razorpay payment: " + e.getMessage(), e);
         }
     }
@@ -85,23 +97,29 @@ public class RazorpayClientWrapper {
             return false;
         }
         String data = razorpayOrderId + "|" + razorpayPaymentId;
-        return verifyHmacSha256(data, razorpayProperties.getKeySecret(), signature);
+        return verifyHmacSha256(data, getEffectiveSecret(razorpayProperties.getKeySecret()), signature);
     }
 
     public boolean verifyWebhookSignature(String payload, String signature) {
         if (payload == null || signature == null) {
             return false;
         }
-        return verifyHmacSha256(payload, razorpayProperties.getWebhookSecret(), signature);
+        return verifyHmacSha256(payload, getEffectiveSecret(razorpayProperties.getWebhookSecret()), signature);
     }
 
     public String computePaymentSignature(String razorpayOrderId, String razorpayPaymentId) {
         String data = razorpayOrderId + "|" + razorpayPaymentId;
-        return calculateHmacSha256(data, razorpayProperties.getKeySecret());
+        return calculateHmacSha256(data, getEffectiveSecret(razorpayProperties.getKeySecret()));
     }
 
     public String computeWebhookSignature(String payload) {
-        return calculateHmacSha256(payload, razorpayProperties.getWebhookSecret());
+        return calculateHmacSha256(payload, getEffectiveSecret(razorpayProperties.getWebhookSecret()));
+    }
+
+    private String getEffectiveSecret(String configuredSecret) {
+        return (configuredSecret != null && !configuredSecret.trim().isEmpty())
+                ? configuredSecret
+                : DEFAULT_SIMULATED_SECRET;
     }
 
     private boolean verifyHmacSha256(String data, String secret, String expectedSignatureHex) {

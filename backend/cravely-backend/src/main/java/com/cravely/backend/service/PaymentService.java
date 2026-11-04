@@ -79,9 +79,14 @@ public class PaymentService {
         Payment payment = new Payment(order, rzpOrder.id(), totalAmount, currency);
         paymentRepository.save(payment);
 
+        String keyId = razorpayProperties.getKeyId();
+        if (keyId == null || keyId.trim().isEmpty()) {
+            keyId = "rzp_test_unconfigured";
+        }
+
         return new RazorpayOrderResponse(
                 rzpOrder.id(),
-                razorpayProperties.getKeyId(),
+                keyId,
                 amountInPaise,
                 totalAmount,
                 currency,
@@ -110,6 +115,15 @@ public class PaymentService {
         // Idempotency: if already marked PAID, return existing verified response safely
         if (payment.getPaymentStatus() == PaymentStatus.PAID) {
             return PaymentResponse.fromEntity(payment);
+        }
+
+        // If genuine payment verification is attempted without Razorpay credentials configured
+        boolean isMockOrder = request.getRazorpayOrderId() != null && request.getRazorpayOrderId().startsWith("order_mock_");
+        if (!isMockOrder && !razorpayProperties.isConfigured()) {
+            payment.setPaymentStatus(PaymentStatus.FAILED);
+            payment.setFailureReason("Razorpay payment gateway is not configured on the server. Genuine payments cannot be verified.");
+            paymentRepository.save(payment);
+            throw new IllegalStateException("Razorpay payment gateway is not configured on the server. Genuine payments cannot be verified.");
         }
 
         // Verify cryptographic HMAC-SHA256 signature

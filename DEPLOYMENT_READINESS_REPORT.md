@@ -96,9 +96,9 @@ Configure these environment variables in the Render Dashboard under **Environmen
 | `JWT_SECRET` | **Yes** | `404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970` | 256-bit base64-encoded secret key for signing tokens |
 | `JWT_EXPIRATION_MS` | No | `86400000` | Token expiration in milliseconds (default: 24 hours) |
 | `CORS_ALLOWED_ORIGINS` | **Yes** | `https://cravely.vercel.app` | Comma-separated allowed frontend domains |
-| `RAZORPAY_KEY_ID` | **Yes** | `rzp_test_...` (or `rzp_live_...`) | Razorpay Key ID |
-| `RAZORPAY_KEY_SECRET` | **Yes** | `[SECURE_RAZORPAY_SECRET]` | Razorpay Key Secret |
-| `RAZORPAY_WEBHOOK_SECRET` | **Yes** | `[SECURE_WEBHOOK_SECRET]` | Razorpay Webhook Signing Secret |
+| `RAZORPAY_KEY_ID` | Optional | `rzp_test_...` (or `rzp_live_...`) | Razorpay Key ID (optional; payment simulation enabled if omitted) |
+| `RAZORPAY_KEY_SECRET` | Optional | `[SECURE_RAZORPAY_SECRET]` | Razorpay Key Secret (optional) |
+| `RAZORPAY_WEBHOOK_SECRET` | Optional | `[SECURE_WEBHOOK_SECRET]` | Razorpay Webhook Signing Secret (optional) |
 | `RAZORPAY_CURRENCY` | No | `INR` | Transaction currency (default: `INR`) |
 | `SPRING_JPA_HIBERNATE_DDL_AUTO` | No | `validate` | Schema validation mode (prevents accidental table alteration) |
 

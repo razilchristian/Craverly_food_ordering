@@ -6,17 +6,32 @@ import org.springframework.stereotype.Component;
 @Component
 public class RazorpayProperties {
 
-    @Value("${razorpay.key.id:rzp_test_placeholder_key_id}")
+    @Value("${razorpay.key.id:}")
     private String keyId;
 
-    @Value("${razorpay.key.secret:placeholder_key_secret_12345}")
+    @Value("${razorpay.key.secret:}")
     private String keySecret;
 
-    @Value("${razorpay.webhook.secret:placeholder_webhook_secret_12345}")
+    @Value("${razorpay.webhook.secret:}")
     private String webhookSecret;
 
     @Value("${razorpay.currency:INR}")
     private String currency;
+
+    /**
+     * Returns true only when valid, non-placeholder credentials are provided.
+     */
+    public boolean isConfigured() {
+        return keyId != null && !keyId.trim().isEmpty() && !keyId.contains("placeholder")
+                && keySecret != null && !keySecret.trim().isEmpty() && !keySecret.contains("placeholder");
+    }
+
+    /**
+     * Returns true only when a valid, non-placeholder webhook secret is provided.
+     */
+    public boolean isWebhookConfigured() {
+        return webhookSecret != null && !webhookSecret.trim().isEmpty() && !webhookSecret.contains("placeholder");
+    }
 
     public String getKeyId() {
         return keyId;
@@ -43,7 +58,7 @@ public class RazorpayProperties {
     }
 
     public String getCurrency() {
-        return currency;
+        return (currency != null && !currency.trim().isEmpty()) ? currency : "INR";
     }
 
     public void setCurrency(String currency) {

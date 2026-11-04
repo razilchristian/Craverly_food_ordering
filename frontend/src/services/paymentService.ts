@@ -292,6 +292,7 @@ export const paymentService = {
     const isPlaceholderMode =
       !orderData.razorpayKeyId ||
       orderData.razorpayKeyId.includes('placeholder') ||
+      orderData.razorpayKeyId.includes('unconfigured') ||
       orderData.razorpayOrderId.startsWith('order_mock_')
 
     // If running in development with placeholder keys, use the test mode simulator
