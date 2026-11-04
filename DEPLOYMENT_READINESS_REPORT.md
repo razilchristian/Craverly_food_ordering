@@ -147,7 +147,7 @@ private String allowedOriginsConfig;
 
 #### Option 1: Docker Container Deployment (Recommended)
 `backend/Dockerfile` uses a multi-stage build:
-1. **Build Stage:** `maven:3.9.6-eclipse-temurin-22` packages `cravely-backend-0.0.1-SNAPSHOT.jar`.
+1. **Build Stage:** `maven:3.9.6-eclipse-temurin-22` packages `cravely-backend-0.0.1-SNAPSHOT.jar` in a single pass using `mvn -B -ntp -Dmaven.wagon.http.retryHandler.count=5 clean package -DskipTests`, eliminating redundant dependency passes and mitigating Maven Central HTTP 429 rate limits.
 2. **Runtime Stage:** `eclipse-temurin:22-jre-jammy` runs the jar under an unprivileged `cravely` user.
 3. Automatically uses Render's `${PORT}`.
 
@@ -391,3 +391,4 @@ All 14 deployment readiness tasks are complete:
 14. Frontend production build verified (built in 3.16s).
 
 **Execution is stopped as requested. Standing by for your instructions.**
+

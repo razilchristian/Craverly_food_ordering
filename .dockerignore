@@ -1,0 +1,10 @@
+.git
+.gitignore
+frontend/node_modules
+frontend/dist
+backend/cravely-backend/target
+*.log
+.env
+.env.*
+!.env.example
+

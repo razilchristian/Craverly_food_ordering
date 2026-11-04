@@ -27,6 +27,9 @@ logs/
 !.env.example
 *.env
 
+# Database dumps
+*.sql
+
 # OS generated
 .DS_Store
 Thumbs.db
