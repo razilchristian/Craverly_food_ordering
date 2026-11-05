@@ -1,5 +1,5 @@
 import { AlertCircle, Lock, Mail, Phone, ShieldCheck, User, X } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { authService, type RegisterRequest } from '../../services/authService'
 
@@ -7,10 +7,11 @@ interface AuthModalProps {
   isOpen: boolean
   onClose: () => void
   onSuccess?: () => void
+  initialMode?: 'login' | 'register'
 }
 
-export default function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
-  const [isRegister, setIsRegister] = useState(false)
+export default function AuthModal({ isOpen, onClose, onSuccess, initialMode = 'login' }: AuthModalProps) {
+  const [isRegister, setIsRegister] = useState(initialMode === 'register')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [fullName, setFullName] = useState('')
@@ -19,6 +20,13 @@ export default function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const nav = useNavigate()
+
+  useEffect(() => {
+    if (isOpen) {
+      setIsRegister(initialMode === 'register')
+      setError(null)
+    }
+  }, [isOpen, initialMode])
 
   if (!isOpen) return null
 
@@ -89,6 +97,34 @@ export default function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps
               ? 'Create an account to order food or manage your restaurant'
               : 'Sign in to access your orders, cart, and dashboard'}
           </p>
+        </div>
+
+        {/* Top Tab Switcher: Sign In vs Sign Up */}
+        <div className="mt-4 grid grid-cols-2 rounded-2xl bg-slate-100 p-1 text-xs font-bold">
+          <button
+            type="button"
+            onClick={() => {
+              setIsRegister(false)
+              setError(null)
+            }}
+            className={`rounded-xl py-2.5 transition ${
+              !isRegister ? 'bg-white text-ink shadow-xs' : 'text-muted hover:text-ink'
+            }`}
+          >
+            Sign In
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setIsRegister(true)
+              setError(null)
+            }}
+            className={`rounded-xl py-2.5 transition ${
+              isRegister ? 'bg-white text-ink shadow-xs' : 'text-muted hover:text-ink'
+            }`}
+          >
+            Create Account
+          </button>
         </div>
 
         {/* Error Alert */}

@@ -1,6 +1,7 @@
 import { ArrowRight, Clock, Navigation, RefreshCw, ShoppingBag } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router'
+import AuthModal from '../../components/common/AuthModal'
 import { EmptyState } from '../../components/common/ui'
 import { orderService } from '../../services/orderService'
 import type { OrderSummaryResponse } from '../../types/tracking'
@@ -12,8 +13,17 @@ export default function OrdersPage() {
   const [error, setError] = useState<string | null>(null)
   const [page, setPage] = useState(0)
   const [totalPages, setTotalPages] = useState(1)
+  const [showAuthModal, setShowAuthModal] = useState(false)
+  const [hasToken, setHasToken] = useState(() => !!localStorage.getItem('cravely_token'))
 
   const fetchOrders = async (targetPage = 0) => {
+    const token = localStorage.getItem('cravely_token')
+    if (!token) {
+      setHasToken(false)
+      setLoading(false)
+      return
+    }
+    setHasToken(true)
     setLoading(true)
     setError(null)
     try {
@@ -31,6 +41,27 @@ export default function OrdersPage() {
   useEffect(() => {
     fetchOrders(0)
   }, [])
+
+  if (!hasToken) {
+    return (
+      <div className="container-app py-16">
+        <EmptyState
+          title="Sign in to view your orders"
+          text="Sign in or create an account to view your past orders, delivery details, and live tracking."
+          action={
+            <button onClick={() => setShowAuthModal(true)} className="btn-primary">
+              Sign In / Register
+            </button>
+          }
+        />
+        <AuthModal
+          isOpen={showAuthModal}
+          onClose={() => setShowAuthModal(false)}
+          onSuccess={() => fetchOrders(0)}
+        />
+      </div>
+    )
+  }
 
   if (loading && orders.length === 0) {
     return (
