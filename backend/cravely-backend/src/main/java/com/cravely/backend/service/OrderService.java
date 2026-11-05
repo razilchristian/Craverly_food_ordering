@@ -34,6 +34,7 @@ public class OrderService {
     private final RestaurantRepository restaurantRepository;
     private final UserRepository userRepository;
     private final OrderStatusHistoryRepository orderStatusHistoryRepository;
+    private final CartService cartService;
 
     public OrderService(OrderRepository orderRepository,
                         OrderItemRepository orderItemRepository,
@@ -41,7 +42,8 @@ public class OrderService {
                         FoodItemRepository foodItemRepository,
                         RestaurantRepository restaurantRepository,
                         UserRepository userRepository,
-                        OrderStatusHistoryRepository orderStatusHistoryRepository) {
+                        OrderStatusHistoryRepository orderStatusHistoryRepository,
+                        @org.springframework.beans.factory.annotation.Autowired(required = false) CartService cartService) {
         this.orderRepository = orderRepository;
         this.orderItemRepository = orderItemRepository;
         this.cartRepository = cartRepository;
@@ -49,6 +51,7 @@ public class OrderService {
         this.restaurantRepository = restaurantRepository;
         this.userRepository = userRepository;
         this.orderStatusHistoryRepository = orderStatusHistoryRepository;
+        this.cartService = cartService;
     }
 
     // ==========================================
@@ -60,7 +63,13 @@ public class OrderService {
         User customer = getCustomer(customerEmail);
 
         Cart cart = cartRepository.findByUserId(customer.getId())
-                .orElseThrow(() -> new IllegalStateException("Cannot place order with an empty cart"));
+                .orElseGet(() -> cartRepository.save(new Cart(customer)));
+
+        if ((cart.getItems() == null || cart.getItems().isEmpty()) && request.getItems() != null && !request.getItems().isEmpty() && cartService != null) {
+            cartService.syncCart(customerEmail, new SyncCartRequest(request.getItems()));
+            cart = cartRepository.findByUserId(customer.getId())
+                    .orElseThrow(() -> new IllegalStateException("Cannot place order with an empty cart"));
+        }
 
         if (cart.getItems() == null || cart.getItems().isEmpty()) {
             throw new IllegalStateException("Cannot place order with an empty cart");

@@ -168,5 +168,49 @@ public class CartCheckoutIntegrationTest {
         CartResponse otherCart = cartService.getCart(otherCustomerEmail);
         assertTrue(otherCart.getItems().isEmpty());
     }
+
+    @Test
+    @DisplayName("6. Synchronizing items from other seeded restaurants (Burger District f1 Classic Veg Burger)")
+    void testSyncBurgerDistrictCart() {
+        SyncCartRequest syncRequest = new SyncCartRequest(List.of(
+                new SyncCartItemRequest(null, "f1", "Classic Veg Burger", "burger-district", 2)
+        ));
+
+        CartResponse syncedCart = cartService.syncCart(customerEmail, syncRequest);
+        assertNotNull(syncedCart);
+        assertNotNull(syncedCart.getRestaurant());
+        assertEquals("The Burger District", syncedCart.getRestaurant().getName());
+        assertEquals(1, syncedCart.getItems().size());
+        assertEquals(2, syncedCart.getTotalItems());
+        assertEquals(new BigDecimal("298.00"), syncedCart.getSubtotal());
+    }
+
+    @Test
+    @DisplayName("7. Auto-synchronize and place order when DB cart was empty but PlaceOrderRequest contains items")
+    void testAutoSyncOnPlaceOrderWhenCartEmpty() {
+        // Ensure cart is empty
+        cartService.clearCart(customerEmail);
+        assertTrue(cartService.getCart(customerEmail).getItems().isEmpty());
+
+        PlaceOrderRequest orderRequest = new PlaceOrderRequest(
+                "456 SG Highway",
+                "Ahmedabad",
+                "Gujarat",
+                "380054",
+                "9876543210",
+                "Deliver immediately",
+                null,
+                List.of(
+                        new SyncCartItemRequest(null, "f4", "Paneer Tikka Pizza", "pizza-theory", 1),
+                        new SyncCartItemRequest(null, "f5", "Margherita Classica", "pizza-theory", 1)
+                )
+        );
+
+        OrderResponse order = orderService.placeOrder(customerEmail, orderRequest);
+        assertNotNull(order);
+        assertEquals("Pizza Theory", order.getRestaurantName());
+        assertEquals(2, order.getItems().size());
+        assertEquals(new BigDecimal("508.00"), order.getSubtotal());
+    }
 }
 

@@ -11,7 +11,7 @@ import java.security.Principal;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/payments")
+@RequestMapping({"/api/payments", "/payments"})
 @PreAuthorize("hasRole('CUSTOMER')")
 public class PaymentController {
 

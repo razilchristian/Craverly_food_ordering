@@ -31,6 +31,8 @@ public class PlaceOrderRequest {
     @Size(max = 50, message = "Coupon code cannot exceed 50 characters")
     private String couponCode;
 
+    private java.util.List<SyncCartItemRequest> items;
+
     public PlaceOrderRequest() {
     }
 
@@ -48,6 +50,13 @@ public class PlaceOrderRequest {
                              String deliveryPincode, String customerPhone, String customerNote, String couponCode) {
         this(deliveryAddress, deliveryCity, deliveryState, deliveryPincode, customerPhone, customerNote);
         this.couponCode = couponCode;
+    }
+
+    public PlaceOrderRequest(String deliveryAddress, String deliveryCity, String deliveryState,
+                             String deliveryPincode, String customerPhone, String customerNote, String couponCode,
+                             java.util.List<SyncCartItemRequest> items) {
+        this(deliveryAddress, deliveryCity, deliveryState, deliveryPincode, customerPhone, customerNote, couponCode);
+        this.items = items;
     }
 
     public String getDeliveryAddress() {
@@ -104,6 +113,14 @@ public class PlaceOrderRequest {
 
     public void setCouponCode(String couponCode) {
         this.couponCode = couponCode;
+    }
+
+    public java.util.List<SyncCartItemRequest> getItems() {
+        return items;
+    }
+
+    public void setItems(java.util.List<SyncCartItemRequest> items) {
+        this.items = items;
     }
 }
 

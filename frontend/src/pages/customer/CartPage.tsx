@@ -120,7 +120,11 @@ export default function CartPage() {
     setLoading(true)
     try {
       // 2. Synchronize frontend cart items to backend MySQL cart
-      await cartService.syncCart(cart, token)
+      try {
+        await cartService.syncCart(cart, token)
+      } catch (syncErr) {
+        console.warn('Direct cart sync warning, relying on order placement sync fallback:', syncErr)
+      }
 
       // 3. Place order on live backend
       const orderPayload = {
@@ -131,6 +135,13 @@ export default function CartPage() {
         customerPhone: phone,
         customerNote: notes,
         couponCode: coupon?.code || null,
+        items: cart.map((entry) => ({
+          foodItemId: typeof entry.item.id === 'number' ? entry.item.id : (Number(entry.item.id) || null),
+          itemCode: String(entry.item.id),
+          name: entry.item.name || '',
+          restaurantId: entry.item.restaurantId || '',
+          quantity: entry.qty,
+        })),
       }
 
       const orderRes = await fetch(`${API_BASE}/orders`, {

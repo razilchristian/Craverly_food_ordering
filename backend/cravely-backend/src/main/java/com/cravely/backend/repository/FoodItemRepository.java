@@ -29,7 +29,11 @@ public interface FoodItemRepository extends JpaRepository<FoodItem, Long> {
 
     Optional<FoodItem> findFirstByNameIgnoreCaseAndAvailableTrue(String name);
 
+    Optional<FoodItem> findFirstByNameIgnoreCase(String name);
+
     Optional<FoodItem> findFirstByRestaurantIdAndNameIgnoreCaseAndAvailableTrue(Long restaurantId, String name);
+
+    Optional<FoodItem> findFirstByRestaurantIdAndNameIgnoreCase(Long restaurantId, String name);
 
     long countByAvailable(Boolean available);
 }

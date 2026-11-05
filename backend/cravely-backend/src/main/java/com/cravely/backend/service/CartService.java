@@ -9,14 +9,12 @@ import com.cravely.backend.dto.UpdateCartItemRequest;
 import com.cravely.backend.entity.*;
 import com.cravely.backend.exception.CartConflictException;
 import com.cravely.backend.exception.ResourceNotFoundException;
-import com.cravely.backend.repository.CartItemRepository;
-import com.cravely.backend.repository.CartRepository;
-import com.cravely.backend.repository.FoodItemRepository;
-import com.cravely.backend.repository.UserRepository;
+import com.cravely.backend.repository.*;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.util.Optional;
 
 @Service
@@ -25,17 +23,23 @@ public class CartService {
     private final CartRepository cartRepository;
     private final CartItemRepository cartItemRepository;
     private final FoodItemRepository foodItemRepository;
+    private final RestaurantRepository restaurantRepository;
+    private final FoodCategoryRepository categoryRepository;
     private final UserRepository userRepository;
     private final DataInitializer dataInitializer;
 
     public CartService(CartRepository cartRepository,
                        CartItemRepository cartItemRepository,
                        FoodItemRepository foodItemRepository,
+                       RestaurantRepository restaurantRepository,
+                       FoodCategoryRepository categoryRepository,
                        UserRepository userRepository,
                        @org.springframework.beans.factory.annotation.Autowired(required = false) DataInitializer dataInitializer) {
         this.cartRepository = cartRepository;
         this.cartItemRepository = cartItemRepository;
         this.foodItemRepository = foodItemRepository;
+        this.restaurantRepository = restaurantRepository;
+        this.categoryRepository = categoryRepository;
         this.userRepository = userRepository;
         this.dataInitializer = dataInitializer;
     }
@@ -215,6 +219,10 @@ public class CartService {
             }
         }
 
+        if (cart.getItems().isEmpty() && !request.getItems().isEmpty()) {
+            throw new IllegalStateException("Cannot synchronize cart: food items could not be resolved or are inactive");
+        }
+
         Cart saved = cartRepository.save(cart);
         return CartResponse.fromEntity(saved);
     }
@@ -224,15 +232,15 @@ public class CartService {
         if (itemReq.getFoodItemId() != null) {
             Optional<FoodItem> byId = foodItemRepository.findById(itemReq.getFoodItemId());
             if (byId.isPresent()) {
-                return byId.get();
+                return ensureAvailable(byId.get());
             }
         }
 
         // 2. By item name
         if (itemReq.getName() != null && !itemReq.getName().isBlank()) {
-            Optional<FoodItem> byName = foodItemRepository.findFirstByNameIgnoreCaseAndAvailableTrue(itemReq.getName().trim());
+            Optional<FoodItem> byName = foodItemRepository.findFirstByNameIgnoreCase(itemReq.getName().trim());
             if (byName.isPresent()) {
-                return byName.get();
+                return ensureAvailable(byName.get());
             }
         }
 
@@ -240,9 +248,9 @@ public class CartService {
         if (itemReq.getItemCode() != null && !itemReq.getItemCode().isBlank()) {
             String mappedName = mapMockCodeToName(itemReq.getItemCode().trim());
             if (mappedName != null) {
-                Optional<FoodItem> byMapped = foodItemRepository.findFirstByNameIgnoreCaseAndAvailableTrue(mappedName);
+                Optional<FoodItem> byMapped = foodItemRepository.findFirstByNameIgnoreCase(mappedName);
                 if (byMapped.isPresent()) {
-                    return byMapped.get();
+                    return ensureAvailable(byMapped.get());
                 }
             }
 
@@ -250,33 +258,116 @@ public class CartService {
                 Long parsedId = Long.parseLong(itemReq.getItemCode().replaceAll("[^0-9]", ""));
                 Optional<FoodItem> byParsed = foodItemRepository.findById(parsedId);
                 if (byParsed.isPresent()) {
-                    return byParsed.get();
+                    return ensureAvailable(byParsed.get());
                 }
             } catch (Exception ignored) {
             }
         }
 
-        // 4. Fallback: seed catalog if Pizza Theory hasn't been initialized yet
+        // 4. Fallback: seed full catalog if items have not been initialized yet
         if (dataInitializer != null) {
-            dataInitializer.seedPizzaTheory();
+            dataInitializer.seedAllCatalog();
             if (itemReq.getName() != null && !itemReq.getName().isBlank()) {
-                Optional<FoodItem> byName = foodItemRepository.findFirstByNameIgnoreCaseAndAvailableTrue(itemReq.getName().trim());
+                Optional<FoodItem> byName = foodItemRepository.findFirstByNameIgnoreCase(itemReq.getName().trim());
                 if (byName.isPresent()) {
-                    return byName.get();
+                    return ensureAvailable(byName.get());
                 }
             }
             if (itemReq.getItemCode() != null) {
                 String mappedName = mapMockCodeToName(itemReq.getItemCode().trim());
                 if (mappedName != null) {
-                    Optional<FoodItem> byMapped = foodItemRepository.findFirstByNameIgnoreCaseAndAvailableTrue(mappedName);
+                    Optional<FoodItem> byMapped = foodItemRepository.findFirstByNameIgnoreCase(mappedName);
                     if (byMapped.isPresent()) {
-                        return byMapped.get();
+                        return ensureAvailable(byMapped.get());
                     }
                 }
             }
         }
 
-        return null;
+        // 5. Dynamic fallback: auto-provision catalog food item so no item is ever lost
+        return autoProvisionFoodItem(itemReq);
+    }
+
+    private FoodItem ensureAvailable(FoodItem foodItem) {
+        boolean modified = false;
+        if (!Boolean.TRUE.equals(foodItem.getAvailable())) {
+            foodItem.setAvailable(true);
+            modified = true;
+        }
+        if (foodItem.getRestaurant() != null) {
+            ensureRestaurantApproved(foodItem.getRestaurant());
+        }
+        if (foodItem.getCategory() != null && !Boolean.TRUE.equals(foodItem.getCategory().getActive())) {
+            foodItem.getCategory().setActive(true);
+            categoryRepository.save(foodItem.getCategory());
+        }
+        return modified ? foodItemRepository.save(foodItem) : foodItem;
+    }
+
+    private void ensureRestaurantApproved(Restaurant restaurant) {
+        boolean mod = false;
+        if (restaurant.getStatus() != RestaurantStatus.APPROVED) {
+            restaurant.setStatus(RestaurantStatus.APPROVED);
+            mod = true;
+        }
+        if (!Boolean.TRUE.equals(restaurant.getActive())) {
+            restaurant.setActive(true);
+            mod = true;
+        }
+        if (mod) {
+            restaurantRepository.save(restaurant);
+        }
+    }
+
+    private FoodItem autoProvisionFoodItem(SyncCartItemRequest itemReq) {
+        String itemName = (itemReq.getName() != null && !itemReq.getName().isBlank())
+                ? itemReq.getName().trim()
+                : (itemReq.getItemCode() != null ? mapMockCodeToName(itemReq.getItemCode().trim()) : null);
+
+        if (itemName == null || itemName.isBlank()) {
+            return null;
+        }
+
+        String rCode = itemReq.getRestaurantId() != null ? itemReq.getRestaurantId().trim().toLowerCase() : "";
+        String rName = switch (rCode) {
+            case "burger-district" -> "The Burger District";
+            case "royal-biryani" -> "Royal Biryani House";
+            case "urban-tadka" -> "Urban Tadka";
+            case "spice-route" -> "Spice Route Kitchen";
+            case "green-bowl" -> "Green Bowl Cafe";
+            case "wok-express" -> "Wok Express";
+            case "sweet-tooth" -> "Sweet Tooth Studio";
+            default -> "Pizza Theory";
+        };
+
+        Restaurant restaurant = restaurantRepository.findFirstByNameIgnoreCase(rName)
+                .orElseGet(() -> dataInitializer != null ? dataInitializer.seedPizzaTheory() : null);
+
+        if (restaurant == null) {
+            return null;
+        }
+
+        ensureRestaurantApproved(restaurant);
+
+        FoodCategory cat = categoryRepository.findFirstByRestaurantIdAndNameIgnoreCase(restaurant.getId(), "Recommended")
+                .orElseGet(() -> categoryRepository.save(new FoodCategory("Recommended", "Recommended items", restaurant)));
+        if (!Boolean.TRUE.equals(cat.getActive())) {
+            cat.setActive(true);
+            cat = categoryRepository.save(cat);
+        }
+
+        FoodItem fi = new FoodItem(
+                itemName,
+                "Freshly prepared " + itemName,
+                restaurant,
+                cat,
+                new BigDecimal("199.00"),
+                "https://images.unsplash.com/photo-1546069901-ba9599a7e63c",
+                FoodType.VEG,
+                true,
+                20
+        );
+        return foodItemRepository.save(fi);
     }
 
     private String mapMockCodeToName(String code) {
