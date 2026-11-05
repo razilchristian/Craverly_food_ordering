@@ -255,8 +255,7 @@ export default function CustomerLayout() {
           to="/"
           end
           className={({ isActive }) =>
-            `flex flex-col items-center gap-0.5 py-2 text-[11px] font-medium transition ${
-              isActive ? 'text-primary font-bold' : 'text-muted hover:text-ink'
+            `flex flex-col items-center gap-0.5 py-2 text-[11px] font-medium transition ${isActive ? 'text-primary font-bold' : 'text-muted hover:text-ink'
             }`
           }
         >
@@ -267,8 +266,7 @@ export default function CustomerLayout() {
           to="/restaurants"
           end
           className={({ isActive }) =>
-            `flex flex-col items-center gap-0.5 py-2 text-[11px] font-medium transition ${
-              isActive ? 'text-primary font-bold' : 'text-muted hover:text-ink'
+            `flex flex-col items-center gap-0.5 py-2 text-[11px] font-medium transition ${isActive ? 'text-primary font-bold' : 'text-muted hover:text-ink'
             }`
           }
         >
@@ -279,8 +277,7 @@ export default function CustomerLayout() {
           to="/orders"
           end
           className={({ isActive }) =>
-            `flex flex-col items-center gap-0.5 py-2 text-[11px] font-medium transition ${
-              isActive ? 'text-primary font-bold' : 'text-muted hover:text-ink'
+            `flex flex-col items-center gap-0.5 py-2 text-[11px] font-medium transition ${isActive ? 'text-primary font-bold' : 'text-muted hover:text-ink'
             }`
           }
         >
@@ -291,8 +288,7 @@ export default function CustomerLayout() {
           to="/cart"
           end
           className={({ isActive }) =>
-            `relative flex flex-col items-center gap-0.5 py-2 text-[11px] font-medium transition ${
-              isActive ? 'text-primary font-bold' : 'text-muted hover:text-ink'
+            `relative flex flex-col items-center gap-0.5 py-2 text-[11px] font-medium transition ${isActive ? 'text-primary font-bold' : 'text-muted hover:text-ink'
             }`
           }
         >
@@ -315,9 +311,8 @@ export default function CustomerLayout() {
               setShowAuthModal(true)
             }
           }}
-          className={`flex flex-col items-center gap-0.5 py-2 text-[11px] font-medium transition ${
-            showAccountSheet ? 'text-primary font-bold' : 'text-muted hover:text-ink'
-          }`}
+          className={`flex flex-col items-center gap-0.5 py-2 text-[11px] font-medium transition ${showAccountSheet ? 'text-primary font-bold' : 'text-muted hover:text-ink'
+            }`}
           aria-label={currentUser ? 'My Account' : 'Sign In or Sign Up'}
         >
           <User className="size-5" />
